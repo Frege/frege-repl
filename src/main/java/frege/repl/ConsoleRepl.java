@@ -7,10 +7,13 @@ import java.io.OutputStreamWriter;
 import java.io.PrintStream;
 import java.io.StringWriter;
 import java.io.Writer;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.charset.Charset;
 
 import jline.ConsoleReader;
 import jline.Terminal;
+
 import frege.script.JFregeInterpreter;
 import frege.script.JInterpreterResult;
 
@@ -96,12 +99,13 @@ public class ConsoleRepl {
 	 * @throws Exception
 	 */
 	public String welcome() throws Exception {
-		JFregeInterpreter.interpret("1", ""); //Warmup request
+		JFregeInterpreter.interpret("1", "", "T", getClassLoader()); //Warmup request
 		return (String.format("Welcome to Frege %s (%s %s, %s)", 
-				JFregeInterpreter.interpret(":version", "").getValue(), System
-				.getProperty("java.vm.vendor"), System
-				.getProperty("java.vm.name"), System
-				.getProperty("java.version")));
+				JFregeInterpreter.interpret(":version", "", "", 
+					getClassLoader()).getValue(), System
+						.getProperty("java.vm.vendor"), System
+						.getProperty("java.vm.name"), System
+						.getProperty("java.version")));
 	}
 
 	/**
@@ -112,6 +116,7 @@ public class ConsoleRepl {
 		println(welcome(), MessageType.INFO);
 		reader.printNewline();
 		String history = "";
+		final URLClassLoader classLoader = getClassLoader();
 		while (true) {
 			final String script = readScript();
 			final String lowercaseScript = script.trim().toLowerCase();
@@ -126,13 +131,24 @@ public class ConsoleRepl {
 					println("Reset!", MessageType.SUCCESS);
 				} else {
 					final JInterpreterResult result = 
-							JFregeInterpreter.interpret(script, history);
+							JFregeInterpreter.interpret(script, history, 
+								"FregeScript", 
+								classLoader);
 					println(result.getValue(), MessageType.SUCCESS);
 					history = result.getScript();
 				}
 			} catch (final Exception e) {
 				println(getRootCause(e).getMessage(), MessageType.ERROR);
 			}
+		}
+	}
+	
+	public static URLClassLoader getClassLoader() {
+		final ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
+		if (classLoader instanceof URLClassLoader) {
+			return (URLClassLoader) classLoader;
+		} else {
+			return new URLClassLoader(new URL[] {}, classLoader);
 		}
 	}
 
