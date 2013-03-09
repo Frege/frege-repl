@@ -18,23 +18,35 @@ In addition to Frege code, the following commands are supported:
 </tr>
 <tr>
 <td>:q</td>
-<td>To quit the REPL or Paste mode</td>
+<td>To quit REPL or Paste mode</td>
 </tr>
 <tr>
-<td>:l</td>
+<td>:list</td>
 <td>To list the identifiers along with types</td>
 </tr>
 <tr>
 <td>:h</td>
-<td>To list the scripts evaluated so far</td>
+<td>To display the scripts evaluated so far</td>
+</tr>
+<tr>
+<td>:version</td>
+<td>To display Frege version</td>
+</tr>
+<tr>
+<td>:l &lt;path&gt;</td>
+<td>To load Frege code snippets from a file</td>
+</tr>
+<tr>
+<td>:r</td>
+<td>To reload the last script file</td>
 </tr>
 <tr>
 <td>:r</td>
 <td>To reset the REPL. All the evaluated scripts will be discarded.</td>
 </tr>
 <tr>
-<td>:version</td>
-<td>To print Frege version</td>
+<td>:help</td>
+<td>To display this help message</td>
 </tr>
 </table>
 
