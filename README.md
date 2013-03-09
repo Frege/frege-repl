@@ -39,14 +39,7 @@ In addition to Frege code, the following commands are supported:
 </table>
 
 ##How to run?##
-1. Download frege-repl-XX.jar, frege-java6-XX.jar, frege-scripting-XX.jar from Downloads page: 
-https://github.com/Frege/frege/downloads where XX indicates the latest version.
-2. Download the following external dependencies from Maven repository:
-  * ecj-3.7.jar  : http://mvnrepository.com/artifact/org.eclipse.jdt.core.compiler/ecj/3.7
-  * jline-1.0.jar: http://mvnrepository.com/artifact/jline/jline/1.0
-3. Run the following command from the folder containing all the above jars: (XX - version number, Minimum JRE: Java 6)
-   ```java -jar frege-repl-XX.jar```
-
-##Known Issues##
-1. Instance and Derive declarations cannot be redefined in an REPL session. As a workaround, we can copy the scripts
-evaluated so far using ":h" command, then reset the REPL with ":r" and run again with the new declarations. 
+1. Download frege-repl-XX.zip from http://code.google.com/p/frege/downloads/list
+2. Extract the archive into some folder
+3. Run the following command from that folder: (JRE 7 required) <BR/>
+   ```java -jar frege-repl-1.0.jar```
