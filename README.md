@@ -41,7 +41,7 @@ In addition to Frege code, the following commands are supported:
 <td>To reload the last script file</td>
 </tr>
 <tr>
-<td>:r</td>
+<td>:reset</td>
 <td>To reset the REPL. All the evaluated scripts will be discarded.</td>
 </tr>
 <tr>
