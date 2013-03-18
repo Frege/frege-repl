@@ -35,8 +35,7 @@ In addition to Frege code, the following commands are supported:
 <tr>
 <td>:l &lt;path&gt;</td>
 <td>To load Frege code snippets from a file. All the declarations from the file will be compiled into default
-REPL module. Hence the Frege source file cannot have module declaration.
-cannot have a module name.</td>
+REPL module. Hence the Frege source file cannot have module declaration.</td>
 </tr>
 <tr>
 <td>:r</td>
