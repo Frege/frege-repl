@@ -1,0 +1,262 @@
+module frege.repl.FregeRepl where
+
+import frege.Version
+import frege.java.Net 
+import Data.List
+import frege.interpreter.FregeInterpreter
+import frege.interpreter.FregeScriptCompiler
+
+data ReplState = ReplState {
+    reader :: ConsoleReader,
+    lastExternalScript :: Maybe URL,
+}
+
+data Repl a = Repl {un :: StateT ReplState Interpreter a} where
+    get = Repl $ StateT (\s -> return (s, s)) --MonadState get, defined here due to the lack of support for FD
+    put s = Repl $ StateT (\_ -> return ((), s)) --MonadState put
+
+instance Monad Repl where
+    return = Repl . return
+    (Repl x) >>= f = Repl $ x >>= (\y -> Repl.un $ f y)
+    
+instance MonadIO Repl where
+    liftIO = Repl . lift . liftIO
+
+liftInterpreter :: Interpreter a -> Repl a    
+liftInterpreter = Repl . lift
+
+repl :: Repl ()
+repl = do
+  state <- Repl.get
+  line <- liftIO $ state.reader.readLine "frege> "
+  let cmd = Command.parse line
+  case cmd of
+    Left err -> do
+        liftIO $ println err
+        repl
+    Right cmd -> when (cmd != Quit) $ do
+      evalScript cmd
+      liftIO $ state.reader.println ""
+      repl
+
+evalScript :: Command -> Repl ()
+evalScript Skip = return ()
+evalScript Help = printHelp
+evalScript Version = Repl.get >>= (\s -> liftIO $ s.reader.println version)
+evalScript Paste = evalPasteScript "" ""
+
+evalScript List = do
+    replState <- Repl.get
+    state <- liftInterpreter $ Interpreter.get
+    let script = state.currentScript
+    when (not . isEmpty . trim $ script) $  do
+          liftInterpreter . Interpreter.put $ state.{currentScript=""}
+          res <- liftInterpreter $ eval script
+          liftInterpreter . Interpreter.put $ state.{currentScript=script}
+          case res of
+            EvalFailure errs -> liftIO $ replState.reader.println $ intercalate newLine errs
+            EvalSuccess {compilationInfo=c} -> do
+              let symList = intercalate newLine $ showSymbols c.state
+              liftIO $ replState.reader.println symList
+
+evalScript (Type expr) = Repl.get >>= liftInterpreter . interpret where
+  interpret replState = do
+        typeOfExpression <- typeOfExpression expr
+        case typeOfExpression of
+            (res, Right typ) -> liftIO $ replState.reader.println typ
+            (res, Left errs) -> liftIO $ replState.reader.println $ intercalate newLine errs
+
+evalScript (Load urlSpec) = do
+    urle <- liftIO $ URL.new urlSpec
+    url <- either throw return urle
+    evalURL url
+            
+evalScript Reload = do
+    state <- Repl.get
+    case state.lastExternalScript of
+        Just url -> evalURL url
+        Nothing -> return () --Nothing to reload    
+
+evalScript  (Eval line) = do
+      (evalInfo, res) <- liftInterpreter $ invokeShow line
+      replState <- Repl.get
+      case res of
+        Right value -> displayResult evalInfo value line
+        Left errs -> liftIO $ replState.reader.println $ intercalate newLine errs
+        
+evalScript History = do
+    interpreterState <- liftInterpreter $ Interpreter.get
+    replState <- Repl.get
+    liftIO $ replState.reader.println interpreterState.currentScript
+    
+evalScript Reset = do
+    initReplState <- liftIO initReplState
+    Repl.put initReplState
+    initInterpreterState <- liftIO initInterpreterState
+    liftInterpreter $ Interpreter.put initInterpreterState
+    
+
+evalURL :: URL -> Repl ()
+evalURL url = do
+    replState <- Repl.get
+    script <- liftIO $ urlContents url
+    res <- liftInterpreter $ eval script
+    case res of
+        EvalFailure errs -> liftIO $ do
+            replState.reader.println $ intercalate newLine errs
+        otherwise -> do
+            liftIO $ replState.reader.println ""
+            Repl.put $ replState.{lastExternalScript=Just url}
+            
+evalPasteScript :: String -> String -> Repl ()
+evalPasteScript ":q" "" = do
+    replState <- Repl.get
+    liftIO $ replState.reader.println ""
+
+evalPasteScript ":q" !script = do
+    replState <- Repl.get
+    res <- liftInterpreter $ eval script
+    case res of
+        EvalFailure errs -> liftIO $ replState.reader.println $ intercalate newLine errs
+        otherwise -> liftInterpreter $ do
+            state <- Interpreter.get
+            Interpreter.put $ state.{currentScript<-(++ newLine ++ script)}
+            liftIO $ replState.reader.println ""
+    
+evalPasteScript curr !acc = do
+    state <- Repl.get
+    line <- liftIO $ state.reader.readLine ""
+    evalPasteScript line (acc ++ newLine ++ curr)
+
+printHelp :: Repl ()
+printHelp = do
+    state <- Repl.get
+    let reader = state.reader
+    liftIO $ do
+        reader.println "At the prompt, you can enter Frege code snippets to get them evaluated."
+        reader.println "The output or compilation errors will be printed below the prompt."
+        reader.println "In addition to Frege code, the following commands are supported:"
+    printCommandHelp":type <expression>" "To print the type of an expression"
+    printCommandHelp  ":p" "To enter paste mode, for multi-line/multiple definitions"
+    printCommandHelp  ":q" "To quit REPL or paste mode"
+    printCommandHelp ":list" "To list the identifiers along with types"
+    printCommandHelp ":h" "To display the scripts evaluated so far"
+    printCommandHelp ":version" "To display Frege version"
+    printCommandHelp  ":load url" "To load Frege code snippets from an URL"
+    printCommandHelp ":r" "To reload the last script file"
+    printCommandHelp ":reset" "To reset the session discarding all evaluated scripts"
+    printCommandHelp ":help" "To display this help message"
+
+printCommandHelp :: String -> String -> Repl ()
+printCommandHelp cmd desc = do
+    state <- Repl.get
+    let reader = state.reader
+    let fmtcmd = cmd ++ (concat $ replicate (20 - cmd.length) " ")
+    liftIO $ reader.println $ fmtcmd ++ " - " ++ desc
+  
+
+displayResult :: EvalResult a -> String -> String -> Repl ()
+displayResult (EvalFailure errs) _  script = do
+    state <- Repl.get
+    liftIO $ state.reader.println $ intercalate newLine errs
+displayResult (EvalSuccess{symbolInfo=Just symInfo}) value script= do
+    replState <- Repl.get
+    liftIO $ replState.reader.println value
+displayResult _ value script = do
+    replState <- Repl.get
+    liftIO $ replState.reader.println value
+    s <- liftInterpreter $ Interpreter.get
+    liftInterpreter . Interpreter.put $ s.{currentScript <- (++ newLine ++ script)}
+ 
+data ConsoleReader = mutable native jline.console.ConsoleReader where
+  native new :: () -> IO ConsoleReader throws IOException
+  native readLine :: ConsoleReader -> String -> IO String throws IOException
+  native readLine' readLine :: ConsoleReader -> IO String throws IOException
+  native println :: ConsoleReader -> String -> IO () throws IOException
+  native setPrompt :: ConsoleReader -> String -> IO ()
+  native setExpandEvents :: ConsoleReader -> Bool -> IO ()
+  
+urlContents url = do
+    inStream <- URL.openStream url
+    scanner <- Scanner.new inStream
+    scanner.useDelimiter "\\Z"
+    scanner.next
+
+data Scanner = mutable native java.util.Scanner where
+    native new :: InputStream -> IO Scanner
+    native useDelimiter :: Scanner -> String -> IO ()
+    native next :: Scanner -> IO String   
+    
+runRepl repl state = evalStateT (Repl.un repl) state
+
+pure native isEmpty :: String -> Bool
+
+data Command = Version | Help | List | Type String | Load String | Eval String | Paste | History | 
+    Reload | Reset | Skip | Quit where 
+    
+    parse   :: String -> Either String Command
+    parse s = parse' $ trim s where
+        parse' "" = Right Skip
+        parse' #^:# = parseCommand s
+        parse' script = Right $ Eval script
+    
+    parseType (Just expr) = Right . Type $ expr
+    parseType Nothing = Left "Missing expression!"
+    
+    parseLoad (Just urlSpec) = Right . Load $ urlSpec
+    parseLoad Nothing = Left "Missing external script URL!"
+        
+    parseCommand (m~#^:l\s+(.*)#) = parseLoad $ m.group 1
+    parseCommand (m~#^:load\s+(.*)#) = parseLoad $ m.group 1
+    parseCommand  ":version" = Right Version
+    parseCommand ":help" = Right Help
+    parseCommand ":list" = Right List
+    parseCommand (m~#^:t\s+(.*)#) = parseType $ m.group 1
+    parseCommand (m~#^:type\s+(.*)#) = parseType $ m.group 1
+    parseCommand ":p" = Right Paste
+    parseCommand ":history" = Right History
+    parseCommand ":r" = Right Reload
+    parseCommand ":reset" = Right Reset
+    parseCommand ":q" = Right Quit
+    parseCommand otherwise = Left "Invalid Command"
+    
+derive Eq Command
+derive Show Command
+
+initReplState :: IO ReplState
+initReplState = do
+    reader <- ConsoleReader.new ()
+    reader.setPrompt "frege> "
+    reader.setExpandEvents false
+    return $ ReplState reader Nothing
+    
+initInterpreterState :: IO InterpreterState 
+initInterpreterState = do
+  urlarr <- URLArray.new 0
+  loader <- ClassLoader.current >>= URLClassLoader.new urlarr
+  classes <- HashMap.new ()
+  let history = ""
+  let options = Options {moduleName = "script.Main"}
+  let interpreterState = InterpreterState {
+      loader = loader,
+      classes = classes,
+      options = options,
+      history = [],
+      currentScript = ""
+  }
+  return interpreterState
+
+vmVendor = maybe "" id $ System.getProperty "java.vm.vendor"
+vmName = maybe "" id $ System.getProperty "java.vm.name"
+javaVersion = maybe "" id $ System.getProperty "java.version"
+
+welcome = "Welcome to Frege " ++ version ++ " (" ++ vmVendor ++ " " ++ vmName ++
+	", " ++ javaVersion ++ ")"
+
+main _ = do
+  println welcome
+  replState <- initReplState
+  interpreterState <- initInterpreterState
+  runInterpreter (runRepl repl replState) interpreterState
+  
+  

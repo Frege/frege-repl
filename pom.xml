@@ -1,15 +1,68 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <parent>
+    <artifactId>frege-scripting</artifactId>
+    <groupId>frege</groupId>
+    <version>1.0-SNAPSHOT</version>
+    <relativePath>../frege-scripting/pom.xml</relativePath>
+  </parent>
   <modelVersion>4.0.0</modelVersion>
-  <groupId>frege</groupId>
   <artifactId>frege-repl</artifactId>
   <packaging>jar</packaging>
   <version>1.0</version>
   <name>frege-repl</name>
   <url>https://github.com/Frege/frege-repl</url>
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.build.sourceDirectory>src/main/frege</project.build.sourceDirectory>
+  </properties>
   <build>
     <plugins>
-       <plugin>
+      <plugin>
+        <artifactId>maven-antrun-plugin</artifactId>
+        <version>1.7</version>
+        <executions>
+          <execution>
+            <phase>compile</phase>
+            <configuration>
+              <target>
+                <property name="compile_classpath" refid="maven.compile.classpath" />
+                <property name="outputDir"
+                  value="${project.build.outputDirectory}" />
+                <property name="sourceDir" value="src/main/frege" />
+                <property name="fregec" value="${frege:frege:jar}" />
+                <exec executable="java" failonerror="true">
+                  <arg value="-Xss1m" />
+                  <arg value="-Dfrege.javac=javac" />
+                  <arg value="-classpath" />
+                  <arg value="${compile_classpath}" />
+                  <arg value="frege.compiler.Main" />
+                  <arg value="-d" />
+                  <arg path="${outputDir}" />
+                  <arg value="${sourceDir}/frege/repl/FregeRepl.fr" />
+                </exec>
+              </target>
+            </configuration>
+            <goals>
+              <goal>run</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>1.2.1</version>
+        <configuration>
+          <executable>java</executable>
+          <arguments>
+            <argument>-classpath</argument>
+            <classpath />
+            <argument>frege.repl.FregeRepl</argument>
+          </arguments>
+        </configuration>
+      </plugin>
+      <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-jar-plugin</artifactId>
         <version>2.4</version>
@@ -17,7 +70,7 @@
           <archive>
             <manifest>
               <addClasspath>true</addClasspath>
-              <mainClass>frege.repl.ConsoleRepl</mainClass>
+              <mainClass>frege.repl.FregeRepl</mainClass>
             </manifest>
           </archive>
         </configuration>
@@ -41,19 +94,25 @@
       <scope>test</scope>
     </dependency>
     <dependency>
-      <groupId>frege</groupId>
-      <artifactId>frege-scripting</artifactId>
-      <version>1.0-SNAPSHOT</version>
-    </dependency>
-    <dependency>
       <groupId>jline</groupId>
       <artifactId>jline</artifactId>
-      <version>1.0</version>
+      <version>2.10</version>
     </dependency>
     <dependency>
       <groupId>frege</groupId>
       <artifactId>frege</artifactId>
-      <version>3.21.33-g5e7b72f</version>
+      <version>3.21.107</version>
+      <classifier>g4bd09eb</classifier>
+    </dependency>
+    <dependency>
+      <groupId>frege</groupId>
+      <artifactId>frege-interpreter</artifactId>
+      <version>1.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>frege</groupId>
+      <artifactId>memory-javac</artifactId>
+      <version>1.0-SNAPSHOT</version>
     </dependency>
     <dependency>
       <groupId>org.eclipse.jdt.core.compiler</groupId>
