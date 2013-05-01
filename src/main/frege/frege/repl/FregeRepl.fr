@@ -68,8 +68,7 @@ evalScript (Type expr) = Repl.get >>= liftInterpreter . interpret where
 
 evalScript (Load urlSpec) = do
     urle <- liftIO $ URL.new urlSpec
-    url <- either throw return urle
-    evalURL url
+    either handleMalformedURLException evalURL urle
             
 evalScript Reload = do
     state <- Repl.get
@@ -95,19 +94,35 @@ evalScript Reset = do
     initInterpreterState <- liftIO initInterpreterState
     liftInterpreter $ Interpreter.put initInterpreterState
     
+evalScript Quit = return ()
+
+ioException :: IOException -> Repl ()    
+ioException e = liftIO $ println $ Throwable.getMessage e
 
 evalURL :: URL -> Repl ()
 evalURL url = do
     replState <- Repl.get
-    script <- liftIO $ urlContents url
-    res <- liftInterpreter $ eval script
-    case res of
-        EvalFailure errs -> liftIO $ do
-            replState.reader.println $ intercalate newLine errs
-        otherwise -> do
-            liftIO $ replState.reader.println ""
-            Repl.put $ replState.{lastExternalScript=Just url}
-            
+    let contents = fetch `catch` handleIOE
+        fetch = urlContents url >>= (return . Just)
+        handleIOE :: IOException -> IO (Maybe Script)
+        handleIOE ioe = replState.reader.println ioe.getMessage >> (return Nothing)
+    scriptMay <- liftIO contents
+    case scriptMay of 
+        Just script -> do
+            res <- liftInterpreter $ eval script
+            case res of
+                EvalFailure errs -> liftIO $ do
+                    replState.reader.println $ intercalate newLine errs
+                otherwise -> do
+                    liftIO $ replState.reader.println ""
+                    Repl.put $ replState.{lastExternalScript=Just url}
+        Nothing -> return ()
+
+handleMalformedURLException :: MalformedURLException -> Repl ()   
+handleMalformedURLException malformed = do
+    state <- Repl.get
+    liftIO $ state.reader.println malformed.getMessage
+
 evalPasteScript :: String -> String -> Repl ()
 evalPasteScript ":q" "" = do
     replState <- Repl.get
@@ -254,8 +269,9 @@ welcome = "Welcome to Frege " ++ version ++ " (" ++ vmVendor ++ " " ++ vmName ++
 	", " ++ javaVersion ++ ")"
 
 main _ = do
-  println welcome
   replState <- initReplState
+  replState.reader.println welcome
+  replState.reader.println ""
   interpreterState <- initInterpreterState
   runInterpreter (runRepl repl replState) interpreterState
   
