@@ -155,7 +155,7 @@ printHelp = do
     printCommandHelp  ":p" "To enter paste mode, for multi-line/multiple definitions"
     printCommandHelp  ":q" "To quit REPL or paste mode"
     printCommandHelp ":list" "To list the identifiers along with types"
-    printCommandHelp ":h" "To display the scripts evaluated so far"
+    printCommandHelp ":history" "To display the scripts evaluated so far"
     printCommandHelp ":version" "To display Frege version"
     printCommandHelp  ":load url" "To load Frege code snippets from an URL"
     printCommandHelp ":r" "To reload the last script file"
@@ -215,9 +215,11 @@ data Command = Version | Help | List | Type String | Load String | Eval String |
         parse' #^:# = parseCommand s
         parse' script = Right $ Eval script
     
+    parseType (Just "") = Left "Missing expression!"
     parseType (Just expr) = Right . Type $ expr
     parseType Nothing = Left "Missing expression!"
     
+    parseLoad (Just "") = Left "Missing external script URL!"
     parseLoad (Just urlSpec) = Right . Load $ urlSpec
     parseLoad Nothing = Left "Missing external script URL!"
         
