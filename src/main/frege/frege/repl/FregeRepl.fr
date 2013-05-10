@@ -1,11 +1,15 @@
 module frege.repl.FregeRepl where
 
+import frege.compiler.Data
+import frege.compiler.Import
 import frege.Version
 import frege.java.Net 
 import Data.List
 import frege.interpreter.FregeInterpreter
 import frege.interpreter.FregeScriptCompiler
 import frege.compiler.Data(Global)
+import frege.compiler.EclipseUtil as EU()
+import frege.List as FL (Tree, values)
 
 data ReplState = ReplState {
     lastExternalScript :: Maybe String
@@ -54,7 +58,15 @@ evalScript Skip = return NoOutput
 evalScript Help = return $ ReplSuccess help
 evalScript Version = Repl.get >>= (\s -> return $ ReplSuccess version)
 
-evalScript List = do
+evalScript (List (Just m)) = do
+    let moduleName = trim m
+    replState <- Repl.get
+    state <- liftInterpreter $ Interpreter.get
+    global <- liftIO $ standardOptions state.loader
+    let res = outlineModule moduleName global
+    return . ReplSuccess $ intercalate newLine res
+    
+evalScript (List Nothing) = do
     replState <- Repl.get
     state <- liftInterpreter $ Interpreter.get
     let script = state.currentScript
@@ -66,8 +78,10 @@ evalScript List = do
           case res of
             EvalFailure errs -> return $ ReplError errs
             EvalSuccess {compilationInfo=c} -> do
-              let symList = intercalate newLine $ showSymbols c.state
-              return $ ReplSuccess symList
+              let g = c.state
+              let symList = map (EU.label g) $ EU.symbols g.thisTab
+              return $ ReplSuccess $ intercalate newLine symList
+
 
 evalScript (Type expr) = Repl.get >>= liftInterpreter . interpret where
   interpret replState = do
@@ -165,7 +179,20 @@ readPasteScript _ ":q" acc = return acc
 readPasteScript console curr !acc = do
     line <- liftIO $ console.readLine ""
     readPasteScript console line (acc ++ newLine ++ curr)
-    
+
+getProps pack = do
+    let p = Pack.new pack
+    importClass Position.null p
+    g <- getST
+    case g.packages.lookup p of
+        Nothing -> return []
+        Just env -> return $ map (EU.label g) $ EU.symbols env
+        
+positionAndName a b = case Symbol.pos a <=> Symbol.pos b of
+                                    Eq -> comparing (QName.base • Symbol.name) a b
+                                    ne -> ne 
+        
+outlineModule pack g = fst $ State.run (getProps pack)  g  
 
 help= intercalate newLine [
             "At the prompt, you can enter Frege code snippets to get them evaluated.",
@@ -245,7 +272,7 @@ runRepl repl state = evalStateT (Repl.un repl) state
 
 pure native isEmpty :: String -> Bool
 
-data Command = Version | Help | List | Type String | Load String | Eval String | Paste | History | 
+data Command = Version | Help | List (Maybe String) | Type String | Load String | Eval String | Paste | History | 
     PasteScript String | Reload | Reset | Skip | Quit where 
     
     parse   :: String -> Either String Command
@@ -266,7 +293,8 @@ data Command = Version | Help | List | Type String | Load String | Eval String |
     parseCommand (m~#^:load\s+(.*)#) = parseLoad $ m.group 1
     parseCommand  ":version" = Right Version
     parseCommand ":help" = Right Help
-    parseCommand ":list" = Right List
+    parseCommand (m~#:list\s(.*)#) = Right $ List $ m.group 1
+    parseCommand ":list" = Right $ List Nothing
     parseCommand (m~#^:t\s+(.*)#) = parseType $ m.group 1
     parseCommand (m~#^:type\s+(.*)#) = parseType $ m.group 1
     parseCommand ":p" = Right Paste
