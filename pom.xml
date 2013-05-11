@@ -9,7 +9,6 @@
   <modelVersion>4.0.0</modelVersion>
   <artifactId>frege-repl</artifactId>
   <packaging>jar</packaging>
-  <version>1.0</version>
   <name>frege-repl</name>
   <url>https://github.com/Frege/frege-repl</url>
   <properties>
@@ -101,8 +100,7 @@
     <dependency>
       <groupId>frege</groupId>
       <artifactId>frege</artifactId>
-      <version>3.21.107</version>
-      <classifier>g4bd09eb</classifier>
+      <version>3.21.107-g4bd09eb</version>
     </dependency>
     <dependency>
       <groupId>frege</groupId>
