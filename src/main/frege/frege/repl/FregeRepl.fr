@@ -35,26 +35,20 @@ repl console = do
   liftIO $ console.println ""
   line <- liftIO $ console.readLine state.prompt
   let cmd = Command.parse line
+  let evalLoop cmd = evalScript cmd >>= printResult console >> repl console
   case cmd of
-    Left err -> do
-        liftIO $ console.println err
-        repl console
+    Left err -> liftIO (console.println err) >> repl console
     Right cmd -> case cmd of
-        Paste -> do
-            pasteScript <- readPasteScript console "" ""
-            res <- evalScript (PasteScript pasteScript)
-            printResult console res
-            repl console
+        Paste -> readPasteScript console "" "" >>= (evalLoop . Eval)
         Quit -> return ()
-        cmd -> do
-              res <- evalScript cmd
-              printResult console res
-              repl console
+        cmd -> evalLoop cmd
 
 evalScript :: Command -> Repl ReplResult
-evalScript Skip = return NoOutput
-evalScript Help = return $ ReplSuccess help
-evalScript Version = Repl.get >>= (\s -> return $ ReplSuccess version)
+evalScript (Eval line) = do
+      (evalInfo, res) <- Repl . lift $ invokeShow line
+      case res of
+        Right value -> makeReplResult evalInfo value line
+        Left errs -> return $ ReplError errs
 
 evalScript (ListModule m) = do
     let moduleName = trim m
@@ -65,21 +59,8 @@ evalScript (ListModule m) = do
     return . ReplSuccess $ intercalate newLine res
     
 evalScript List = do
-    replState <- Repl.get
     state <- Repl . lift $ Interpreter.get
-    let script = state.currentScript
-    if (isEmpty . trim $ script) then return NoOutput
-    else  do
-          Repl . lift . Interpreter.put $ state.{currentScript=""}
-          res <- Repl . lift $ eval script
-          Repl . lift . Interpreter.put $ state.{currentScript=script}
-          case res of
-            EvalFailure errs -> return $ ReplError errs
-            EvalSuccess {compilationInfo=c} -> do
-              let g = c.state
-              let symList = map (EU.label g) $ EU.symbols g.thisTab
-              return $ ReplSuccess $ intercalate newLine symList
-
+    evalScript $ ListModule state.options.moduleName
 
 evalScript (Type expr) = Repl.get >>= Repl . lift . interpret where
   interpret replState = do
@@ -90,13 +71,10 @@ evalScript (Type expr) = Repl.get >>= Repl . lift . interpret where
 
 evalScript (Load (urlSpec@#.*?://#)) = do
     urle <- liftIO $ URL.new urlSpec
-    let updateExternalScript res = case res of
-            ReplSuccess message -> do
-                replState <- Repl.get
-                Repl.put $ replState.{lastExternalScript=Just urlSpec}
-                return res
+    let update res = case res of
+            ReplSuccess message -> updateExternalScript urlSpec >> return res
             otherwise -> return res
-    either handleMalformedURLException (\url -> evalURL url >>= updateExternalScript) urle
+    either handleMalformedURLException (\url -> evalURL url >>= update) urle
     
 evalScript (Load filePath) = do
     scriptMay <- liftIO $ safeSlurp filePath
@@ -106,34 +84,17 @@ evalScript (Load filePath) = do
             case res of
                 EvalFailure errs -> return $ ReplError errs
                 EvalSuccess{compilationInfo=c} -> do
-                    let sub = Global.sub c.state
-                    let moduleName = show $ sub.thisPack.className c.state
-                    replState <- Repl.get
-                    Repl.put $ replState.{lastExternalScript=Just filePath}
-                    return $ ReplSuccess $ "Loaded module " ++ moduleName
+                    let modName = moduleName c.state
+                    updateExternalScript filePath
+                    return $ ReplSuccess $ "Loaded module " ++ modName
         Left err -> return $ ReplError [err]
         
 evalScript Reload = do
     state <- Repl.get
     case state.lastExternalScript of
-        Just url -> evalScript (Load url)
+        Just extScript -> evalScript (Load extScript)
         Nothing -> return NoOutput --Nothing to reload 
-           
-evalScript (PasteScript script) = do
-    res <- Repl . lift $ eval script
-    case res of
-        EvalFailure errs -> return $ ReplError errs
-        otherwise -> Repl . lift $ do
-            state <- Interpreter.get
-            Interpreter.put $ state.{currentScript <- (++ newLine ++ script)}
-            return NoOutput
             
-evalScript  (Eval line) = do
-      (evalInfo, res) <- Repl . lift $ invokeShow line
-      case res of
-        Right value -> makeReplResult evalInfo value line
-        Left errs -> return $ ReplError errs
-        
 evalScript History = do
     interpreterState <- Repl . lift $ Interpreter.get
     return $ ReplSuccess interpreterState.currentScript
@@ -144,6 +105,9 @@ evalScript Reset = do
     Repl . lift $ Interpreter.put initInterpreterState
     return NoOutput
 
+evalScript Skip = return NoOutput
+evalScript Help = return $ ReplSuccess help
+evalScript Version = Repl.get >>= (\s -> return $ ReplSuccess version)
 evalScript Paste = return NoOutput  
 evalScript Quit = return NoOutput
 
@@ -164,10 +128,28 @@ evalURL url = do
             case res of
                 EvalFailure errs -> return $ ReplError errs
                 EvalSuccess{compilationInfo=c} -> do
-                    let sub = Global.sub c.state
-                    let moduleName = show $ sub.thisPack.className c.state
-                    return . ReplSuccess $ "Loaded module " ++ moduleName
+                    let modName = moduleName c.state
+                    return . ReplSuccess $ "Loaded module " ++ modName
         Left err -> return $ ReplError [err]
+
+makeReplResult :: EvalResult a -> String -> String -> Repl ReplResult
+makeReplResult (EvalFailure errs) _  script = return $ ReplError errs
+makeReplResult (EvalSuccess{compilationInfo=c}) value script = 
+    case c.sourceInfo of
+        Expression varName -> return $ ReplSuccess value
+        Definitions -> do
+            s <- Repl . lift $ Interpreter.get
+            Repl . lift . Interpreter.put $ s.{currentScript <- (++ newLine ++ script)}
+            return NoOutput
+        Module -> return . ReplSuccess $ "Loaded module " ++ modName where
+           modName = moduleName c.state
+
+updateExternalScript script = do
+    replState <- Repl.get
+    Repl.put $ replState.{lastExternalScript=Just script}
+    
+moduleName global = show $ sub.thisPack.className global where
+    sub = Global.sub global
 
 handleMalformedURLException :: MalformedURLException -> Repl ReplResult   
 handleMalformedURLException malformed = return $ ReplError [malformed.getMessage]
@@ -211,14 +193,6 @@ indentHelp cmd desc =
     let fmtcmd = cmd ++ (concat $ replicate (20 - cmd.length) " ")
     in fmtcmd ++ " - " ++ desc
   
-makeReplResult :: EvalResult a -> String -> String -> Repl ReplResult
-makeReplResult (EvalFailure errs) _  script = return $ ReplError errs
-makeReplResult (EvalSuccess{symbolInfo=Just symInfo}) value script= return $ ReplSuccess value
-makeReplResult _ value script = do
-    s <- Repl . lift $ Interpreter.get
-    Repl . lift . Interpreter.put $ s.{currentScript <- (++ newLine ++ script)}
-    return NoOutput
- 
 runFile :: String -> Repl ()
 runFile filePath = do
     scriptMay <- liftIO $ safeSlurp filePath
@@ -270,7 +244,7 @@ runRepl repl state = evalStateT (Repl.un repl) state
 pure native isEmpty :: String -> Bool
 
 data Command = Version | Help | List | ListModule String | Type String | Load String | Eval String | 
-	Paste | History | PasteScript String | Reload | Reset | Skip | Quit where 
+    Paste | History | Reload | Reset | Skip | Quit where 
     
     parse   :: String -> Either String Command
     parse s = parse' $ trim s where
@@ -288,7 +262,7 @@ data Command = Version | Help | List | ListModule String | Type String | Load St
         maybe (Left "Missing expression!") (Right . Type) $ m.group 1
     parseCommand ":p" = Right Paste
     parseCommand (m~#^:p\s+(.*)#) = 
-            maybe (Left "Missing script!") (Right . PasteScript) $ m.group 1
+            maybe (Left "Missing script!") (Right . Eval) $ m.group 1
     parseCommand ":history" = Right History
     parseCommand ":r" = Right Reload
     parseCommand ":reset" = Right Reset
