@@ -5,8 +5,8 @@ import frege.compiler.Import
 import frege.Version
 import frege.java.Net 
 import Data.List
+import frege.interpreter.FregeScriptCompiler hiding(compile)
 import frege.interpreter.FregeInterpreter
-import frege.interpreter.FregeScriptCompiler
 import frege.compiler.Data(Global)
 import frege.compiler.EclipseUtil as EU()
 import frege.List as FL (Tree, values)
@@ -45,10 +45,23 @@ repl console = do
 
 evalScript :: Command -> Repl ReplResult
 evalScript (Eval line) = do
-      (evalInfo, res) <- Repl . lift $ invokeShow line
-      case res of
-        Right value -> makeReplResult evalInfo value line
-        Left errs -> return $ ReplError errs
+    fregecRes <- Repl . lift $ compile line
+    case fregecRes of
+        CompilationSuccess (c@CompilationInfo{sourceInfo=sourceInfo,state=g}) ->
+            case sourceInfo of
+                Module -> return $ ReplSuccess $ "Loaded module: " ++ modName where
+                    modName = moduleName g
+                Definitions -> do
+                    tate <- Repl.get
+                    s <- Repl . lift $ Interpreter.get
+                    Repl . lift . Interpreter.put $ s.{currentScript <- (++ newLine ++ line)}
+                    return NoOutput
+                Expression{variableName=var} -> do
+                    res <- Repl . lift $ evalShow line
+                    case res of
+                        Left err -> return $ ReplError err
+                        Right str -> return $ ReplSuccess str
+        CompilationFailure err -> return $ ReplError err
 
 evalScript (ListModule m) = do
     let moduleName = trim m
@@ -60,14 +73,18 @@ evalScript (ListModule m) = do
     
 evalScript List = do
     state <- Repl . lift $ Interpreter.get
-    evalScript $ ListModule state.options.moduleName
+    interpreterState <- Repl . lift $ Interpreter.get
+    if isEmpty . trim $ interpreterState.currentScript then
+        return NoOutput
+    else
+        evalScript $ ListModule state.options.moduleName
 
 evalScript (Type expr) = Repl.get >>= Repl . lift . interpret where
   interpret replState = do
         typeOfExpression <- typeOfExpression expr
         case typeOfExpression of
-            (res, Right typ) -> return $ ReplSuccess typ
-            (res, Left errs) -> return $ ReplError errs
+            Right typ -> return $ ReplSuccess typ
+            Left errs -> return $ ReplError errs
 
 evalScript (Load (urlSpec@#.*?://#)) = do
     urle <- liftIO $ URL.new urlSpec
@@ -80,13 +97,12 @@ evalScript (Load filePath) = do
     scriptMay <- liftIO $ safeSlurp filePath
     case scriptMay of 
         Right script -> do
-            res <- Repl . lift $ eval script
+            res <- evalScript $ Eval script
             case res of
-                EvalFailure errs -> return $ ReplError errs
-                EvalSuccess{compilationInfo=c} -> do
-                    let modName = moduleName c.state
+                ReplSuccess _ -> do
                     updateExternalScript filePath
-                    return $ ReplSuccess $ "Loaded module " ++ modName
+                    return res
+                _ -> return res
         Left err -> return $ ReplError [err]
         
 evalScript Reload = do
@@ -123,26 +139,8 @@ evalURL url = do
         handleIOE ioe = return $ Left ioe.getMessage
     scriptMay <- liftIO contents
     case scriptMay of 
-        Right script -> do
-            res <- Repl . lift $ eval script
-            case res of
-                EvalFailure errs -> return $ ReplError errs
-                EvalSuccess{compilationInfo=c} -> do
-                    let modName = moduleName c.state
-                    return . ReplSuccess $ "Loaded module " ++ modName
+        Right script -> evalScript $ Eval script
         Left err -> return $ ReplError [err]
-
-makeReplResult :: EvalResult a -> String -> String -> Repl ReplResult
-makeReplResult (EvalFailure errs) _  script = return $ ReplError errs
-makeReplResult (EvalSuccess{compilationInfo=c}) value script = 
-    case c.sourceInfo of
-        Expression varName -> return $ ReplSuccess value
-        Definitions -> do
-            s <- Repl . lift $ Interpreter.get
-            Repl . lift . Interpreter.put $ s.{currentScript <- (++ newLine ++ script)}
-            return NoOutput
-        Module -> return . ReplSuccess $ "Loaded module " ++ modName where
-           modName = moduleName c.state
 
 updateExternalScript script = do
     replState <- Repl.get
@@ -198,13 +196,20 @@ runFile filePath = do
     scriptMay <- liftIO $ safeSlurp filePath
     case scriptMay of 
         Right script -> do
-            res <- Repl . lift $ eval script
-            case res of
-                EvalFailure errs -> liftIO $ println $ intercalate newLine errs
-                EvalSuccess{compilationInfo=c} -> do
-                    let sub = Global.sub c.state
-                    let moduleName = show $ sub.thisPack.className c.state
-                    liftIO $ invokeMain moduleName c.state.sub.loader
+            fregecRes <- Repl . lift $ compile script
+            case fregecRes of
+                -- The script is a set of definitions
+                CompilationSuccess (c@CompilationInfo{sourceInfo=sourceInfo,state=g}) ->
+                    case sourceInfo of
+                        Module -> liftIO $ invokeMain modName g.sub.loader where
+                            modName = moduleName g
+                        Definitions -> return ()
+                        Expression{variableName=var} -> do
+                            res <- Repl . lift $ evalShow script
+                            case res of
+                                Left err -> liftIO $ println err
+                                Right str -> liftIO $ println str
+                CompilationFailure err -> liftIO $ println err
         Left err -> liftIO $ println err
         
 safeSlurp :: String -> IO (Either String String)        
@@ -289,7 +294,6 @@ initInterpreterState = do
       loader = loader,
       classes = classes,
       options = options,
-      history = [],
       currentScript = ""
   }
   return interpreterState
