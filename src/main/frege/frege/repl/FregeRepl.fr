@@ -45,6 +45,7 @@ repl console = do
 
 evalScript :: Command -> Repl ReplResult
 evalScript (Eval line) = do
+    oldInterpState <- Repl . lift $ Interpreter.get
     fregecRes <- Repl . lift $ compile line
     case fregecRes of
         CompilationSuccess (c@CompilationInfo{sourceInfo=sourceInfo,state=g}) ->
@@ -58,6 +59,7 @@ evalScript (Eval line) = do
                     return NoOutput
                 Expression{variableName=var} -> do
                     res <- Repl . lift $ evalShow line
+                    Repl . lift $ Interpreter.put oldInterpState
                     case res of
                         Left err -> return $ ReplError err
                         Right str -> return $ ReplSuccess str
@@ -81,7 +83,9 @@ evalScript List = do
 
 evalScript (Type expr) = Repl.get >>= Repl . lift . interpret where
   interpret replState = do
+        oldState <- Interpreter.get
         typeOfExpression <- typeOfExpression expr
+        Interpreter.put oldState
         case typeOfExpression of
             Right typ -> return $ ReplSuccess typ
             Left errs -> return $ ReplError errs
