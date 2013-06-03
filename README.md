@@ -9,50 +9,53 @@ In addition to Frege code, the following commands are supported:
 <th>Description</th>
 </tr>
 <tr>
-<td>:t expression</td>
-<td>To print the type of an expression</td>
+<td>:type &lt;expression&gt;</td>
+<td>Display the type of an expression</td>
 </tr>
 <tr>
-<td>:p</td>
-<td>Paste mode: To enter multi-line/multiple definitions</td>
+<td>:{</td>
+<td>Start multiline definitions</td>
 </tr>
 <tr>
-<td>:q</td>
-<td>To quit REPL or Paste mode</td>
+<td>:}</td>
+<td>End multiline definitions</td>
 </tr>
 <tr>
-<td>:list</td>
-<td>To list the identifiers along with types</td>
+<td>:browse &lt;moduleName&gt;</td>
+<td>Display the names in a module if a module name is provided otherwise display the names in the default REPL module</td>
 </tr>
 <tr>
-<td>:h</td>
-<td>To display the scripts evaluated so far</td>
-</tr>
-<tr>
-<td>:version</td>
-<td>To display Frege version</td>
-</tr>
-<tr>
-<td>:l &lt;path&gt;</td>
-<td>To load Frege code snippets from a file. All the declarations from the file will be compiled into default
-REPL module. Hence the Frege source file cannot have module declaration.</td>
+<td>:l &lt;url or file&gt;</td>
+<td>Load Frege code snippets from an URL or file</td>
 </tr>
 <tr>
 <td>:r</td>
-<td>To reload the last script file</td>
+<td>Reload the last script URL or file</td>
+</tr>
+<tr>
+<td>:history</td>
+<td>Display the source history for definitions in the default REPL module</td>
 </tr>
 <tr>
 <td>:reset</td>
-<td>To reset the REPL. All the evaluated scripts will be discarded.</td>
+<td>Reset the REPL discarding all the evaluated scripts</td>
+</tr>
+<tr>
+<td>:version</td>
+<td>Display Frege version</td>
+</tr>
+<tr>
+<td>:q or :quit</td>
+<td>Quit REPL</td>
 </tr>
 <tr>
 <td>:help</td>
-<td>To display this help message</td>
+<td>Display this help message</td>
 </tr>
 </table>
 
 ##How to run?##
-1. Download frege-repl-XX.zip from http://code.google.com/p/frege/downloads/list
-2. Extract the archive into some folder
-3. Run the following command from that folder: (JRE 7 required) <BR/>
-   ```java -jar frege-repl-1.0.jar```
+1. Download Frege REPL archive from [here](https://dl.dropboxusercontent.com/u/55737110/frege-repl-1.0-SNAPSHOT-20130603.zip)
+2. Extract the archive
+3. Run the following command: (JRE 7 required) <BR/>
+   ```java -jar frege-repl-1.0-SNAPSHOT.jar```
