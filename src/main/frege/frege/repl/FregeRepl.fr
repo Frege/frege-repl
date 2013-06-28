@@ -150,7 +150,6 @@ evalShow :: Script -> Interpreter (Either [String] String)
 evalShow source = do
   fregecRes <- compile source
   case fregecRes of
-    -- The script is a set of definitions
     CompilationSuccess (c@CompilationInfo{sourceInfo=sourceInfo,state=g}) ->
         case sourceInfo of
             Module -> return $ Left ["Not an expression!"]
@@ -359,13 +358,13 @@ printResult _ NoOutput = return ()
 
 main [file] = do
   interpreterState <- initInterpreterState
-  runInterpreter (runRepl (runFile file) initReplState) interpreterState
+  evalInterpreter (runRepl (runFile file) initReplState) interpreterState
 main _ = do
   console <- ConsoleReader.new ()
   console.setPrompt initReplState.prompt
   console.setExpandEvents false
   console.println welcome
   interpreterState <- initInterpreterState
-  runInterpreter (runRepl (repl console) initReplState) interpreterState
+  evalInterpreter (runRepl (repl console) initReplState) interpreterState
 
   
