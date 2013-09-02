@@ -114,7 +114,7 @@
         <version>2.2.1</version>
         <configuration>
           <appendAssemblyId>false</appendAssemblyId>
-          <finalName>frege-repl-${version}</finalName>
+          <finalName>frege-repl-${project.version}</finalName>
           <descriptors>
             <descriptor>src/main/assembly/assembly.xml</descriptor>
           </descriptors>
