@@ -55,7 +55,7 @@ In addition to Frege code, the following commands are supported:
 </table>
 
 ##How to run?##
-1. Download Frege REPL archive from [here](https://dl.dropboxusercontent.com/u/55737110/frege-repl-1.0-SNAPSHOT-20130603.zip)
+1. Download Frege REPL archive from [releases](https://github.com/Frege/frege-repl/releases).
 2. Extract the archive
 3. Run the following command: (JRE 7 required) <BR/>
-   ```java -jar frege-repl-1.0-SNAPSHOT.jar```
+   `java -jar frege-repl-<version>.jar` where `<version>` is the version number on the jar.
