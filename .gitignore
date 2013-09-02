@@ -5,6 +5,7 @@
 *.class
 *.jar
 target/
+dist/
 
 #################
 ## Eclipse
