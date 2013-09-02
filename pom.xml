@@ -3,13 +3,14 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>frege</groupId>
   <artifactId>frege-repl</artifactId>
-  <version>1.0-SNAPSHOT</version>
+  <version>1.0.0</version>
   <packaging>jar</packaging>
   <name>frege-repl</name>
   <url>https://github.com/Frege/frege-repl</url>
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.build.sourceDirectory>src/main/frege</project.build.sourceDirectory>
+    <frege.version>3.21.190-g714a7cc</frege.version>
   </properties>
   <build>
     <pluginManagement>
@@ -112,10 +113,21 @@
         <artifactId>maven-assembly-plugin</artifactId>
         <version>2.2.1</version>
         <configuration>
+          <appendAssemblyId>false</appendAssemblyId>
+          <finalName>frege-repl-${version}</finalName>
           <descriptors>
             <descriptor>src/main/assembly/assembly.xml</descriptor>
           </descriptors>
         </configuration>
+        <executions>
+          <execution>
+            <id>make-assembly</id> <!-- this is used for inheritance merges -->
+            <phase>package</phase> <!-- bind to the packaging phase -->
+            <goals>
+              <goal>single</goal>
+            </goals>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>
@@ -134,7 +146,7 @@
     <dependency>
       <groupId>frege</groupId>
       <artifactId>frege</artifactId>
-      <version>3.21.107-g4bd09eb</version>
+      <version>${frege.version}</version>
     </dependency>
     <dependency>
       <groupId>frege</groupId>

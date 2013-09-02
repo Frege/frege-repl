@@ -79,7 +79,7 @@ evalScript Browse = do
     if isEmpty . trim $ interpreterState.currentScript then
         return NoOutput
     else
-        evalScript $ BrowseModule state.options.moduleName
+        evalScript $ BrowseModule state.moduleName
 
 evalScript (Type expr) = Repl.get >>= Repl . lift . interpret where
   interpret replState = do
@@ -95,7 +95,7 @@ evalScript (Load (urlSpec@#.*?://#)) = do
     let update res = case res of
             ReplSuccess message -> updateExternalScript urlSpec >> return res
             otherwise -> return res
-    either handleMalformedURLException (\url -> evalURL url >>= update) urle
+    evalURL urle >>= update
     
 evalScript (Load filePath) = do
     scriptMay <- liftIO $ safeSlurp filePath
@@ -166,12 +166,10 @@ showVariable source var g = do
 showSymbol source var symbol g | isVariable g symbol = do
     state <- Interpreter.get
     if isString g symbol then do
-        v <- liftIO $ fieldValue state.options.moduleName var g.sub.loader
+        v <- liftIO $ fieldValue state.moduleName var g.sub.loader
         case v of
             Left err -> return $ Left [err.getMessage]
-            Right value -> do
-                s <- liftIO $ value.toString
-                return $ Right s
+            Right value -> return . Right $ toString value
     else do
         Interpreter.put $ state.{currentScript <- (++ newLine ++ var ++ " = " ++ source)}
         let showScript = buildShowScript var g symbol
@@ -334,19 +332,23 @@ initInterpreterState = do
   urlarr <- URLArray.new 0
   loader <- ClassLoader.current >>= URLClassLoader.new urlarr
   classes <- HashMap.new ()
+  time <- currentTimeMillis ()
   let history = ""
-  let options = Options {moduleName = "script.Main"}
   let interpreterState = InterpreterState {
       loader = loader,
       classes = classes,
-      options = options,
-      currentScript = ""
+      moduleName = "script.Main" ++ show time,
+      currentScript = "",
+      modulePrelude = ""
   }
   return interpreterState
 
 vmVendor = maybe "" id $ System.getProperty "java.vm.vendor"
 vmName = maybe "" id $ System.getProperty "java.vm.name"
 javaVersion = maybe "" id $ System.getProperty "java.version"
+
+pure native toString :: Object -> String
+native currentTimeMillis java.lang.System.currentTimeMillis :: () -> IO Long
 
 welcome = "Welcome to Frege " ++ version ++ " (" ++ vmVendor ++ " " ++ vmName ++
     ", " ++ javaVersion ++ ")"
@@ -367,4 +369,3 @@ main _ = do
   interpreterState <- initInterpreterState
   evalInterpreter (runRepl (repl console) initReplState) interpreterState
 
-  
