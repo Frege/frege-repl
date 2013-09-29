@@ -9,7 +9,6 @@ import frege.interpreter.FregeScriptCompiler hiding(compile)
 import frege.interpreter.FregeInterpreter
 import frege.compiler.Data(Global)
 import frege.compiler.EclipseUtil as EU()
-import frege.List as FL (Tree, values)
 
 data ReplState = ReplState {
     lastExternalScript :: Maybe String,
@@ -69,7 +68,9 @@ evalScript (BrowseModule m) = do
     let moduleName = trim m
     replState <- Repl.get
     state <- Repl . lift $ Interpreter.get
-    global <- liftIO $ MemoryClassLoader.new state.loader state.classes >>= standardOptions
+    javac <- liftIO $ MemoryJavaCompiler.new state.loader state.classes
+    loader <- liftIO $ javac.classLoader
+    global <- liftIO $ standardOptions loader
     let res = outlineModule moduleName global
     return . ReplSuccess $ intercalate newLine res
     
@@ -81,14 +82,21 @@ evalScript Browse = do
     else
         evalScript $ BrowseModule state.moduleName
 
-evalScript (Type expr) = Repl.get >>= Repl . lift . interpret where
-  interpret replState = do
+evalScript (Type expr) = do
+  state <- Repl . lift $ Interpreter.get
+  javac <- liftIO $ MemoryJavaCompiler.new state.loader state.classes
+  loader <- liftIO $ javac.classLoader
+  global <- liftIO $ standardOptions loader
+  let typeOfExpr = Repl . lift . interpret $ state
+      interpret replState = do
         oldState <- Interpreter.get
         typeOfExpression <- typeOfExpression expr
         Interpreter.put oldState
         case typeOfExpression of
             Right typ -> return $ ReplSuccess typ
             Left errs -> return $ ReplError errs
+  maybe typeOfExpr (return . ReplSuccess . flip getSymbolType global) $ lookupVarSymbol global.thisTab expr
+  
 
 evalScript (Load (urlSpec@#.*?://#)) = do
     urle <- liftIO $ URL.new urlSpec

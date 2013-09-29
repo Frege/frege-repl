@@ -10,7 +10,8 @@
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.build.sourceDirectory>src/main/frege</project.build.sourceDirectory>
-    <frege.version>3.21.190-g714a7cc</frege.version>
+    <frege.version>frege-3.21.232-g7b05453</frege.version>
+    <frege.plugin.version>1.0.5</frege.plugin.version>
   </properties>
   <build>
     <pluginManagement>
@@ -44,36 +45,25 @@
     </pluginManagement>
     <plugins>
       <plugin>
-        <artifactId>maven-antrun-plugin</artifactId>
-        <version>1.7</version>
+        <groupId>com.theoryinpractise.frege</groupId>
+        <artifactId>frege-maven-plugin</artifactId>
+        <version>${frege.plugin.version}</version>
         <executions>
           <execution>
-            <phase>compile</phase>
-            <configuration>
-              <target>
-                <property name="compile_classpath" refid="maven.compile.classpath" />
-                <property name="outputDir"
-                  value="${project.build.outputDirectory}" />
-                <property name="sourceDir" value="src/main/frege" />
-                <property name="fregec" value="${frege:frege:jar}" />
-                <exec executable="java" failonerror="true">
-                  <arg value="-Xss1m" />
-                  <arg value="-Dfrege.javac=javac" />
-                  <arg value="-classpath" />
-                  <arg value="${compile_classpath}" />
-                  <arg value="frege.compiler.Main" />
-                  <arg value="-d" />
-                  <arg path="${outputDir}" />
-                  <arg value="${sourceDir}/frege/repl/FregeRepl.fr" />
-                </exec>
-              </target>
-            </configuration>
+            <id>compile</id>
+            <phase>generate-sources</phase>
             <goals>
-              <goal>run</goal>
+              <goal>compile</goal>
             </goals>
           </execution>
         </executions>
+        <configuration>
+          <inline>true</inline>
+          <hints>true</hints>
+          <includeStale>false</includeStale>                    
+        </configuration>
       </plugin>
+
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>exec-maven-plugin</artifactId>
@@ -145,11 +135,6 @@
     </dependency>
     <dependency>
       <groupId>frege</groupId>
-      <artifactId>frege</artifactId>
-      <version>${frege.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>frege</groupId>
       <artifactId>frege-interpreter</artifactId>
       <version>1.0-SNAPSHOT</version>
     </dependency>
@@ -159,9 +144,9 @@
       <version>1.0-SNAPSHOT</version>
     </dependency>
     <dependency>
-      <groupId>org.eclipse.jdt.core.compiler</groupId>
-      <artifactId>ecj</artifactId>
-      <version>3.7.2</version>
+	<groupId>org.eclipse.jdt.core.compiler</groupId>
+	<artifactId>ecj</artifactId>
+	<version>4.2.2</version>
     </dependency>
   </dependencies>
 </project>
