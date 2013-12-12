@@ -7,17 +7,18 @@ import frege.java.Net
 import Data.List
 import frege.interpreter.FregeScriptCompiler hiding(compile)
 import frege.interpreter.FregeInterpreter
-import frege.compiler.Data(Global)
 import frege.compiler.EclipseUtil as EU()
 
 data ReplState = ReplState {
     lastExternalScript :: Maybe String,
+    lastJavaSource :: Maybe String,
     prompt :: String
 }
 
 data Repl a = Repl {un :: StateT ReplState Interpreter a} where
     get = Repl $ StateT (\s -> return (s, s)) 
-    put s = Repl $ StateT (\_ -> return ((), s)) 
+    put s = Repl $ StateT (\_ -> return ((), s))
+    modify f = Repl $ StateT (\s -> return ((), f s))
 
 instance Monad Repl where
     return = Repl . return
@@ -47,7 +48,8 @@ evalScript (Eval line) = do
     oldInterpState <- Repl . lift $ Interpreter.get
     fregecRes <- Repl . lift $ compile line
     case fregecRes of
-        CompilationSuccess (c@CompilationInfo{sourceInfo=sourceInfo,state=g}) ->
+        CompilationSuccess (c@CompilationInfo{javaSource=javaSrc, sourceInfo=sourceInfo,state=g}) -> do
+            Repl.modify $ ReplState.{lastJavaSource = Just javaSrc}
             case sourceInfo of
                 Module -> return $ ReplSuccess $ "Loaded module: " ++ modName where
                     modName = moduleName g
@@ -116,6 +118,10 @@ evalScript (Load filePath) = do
                     return res
                 _ -> return res
         Left err -> return $ ReplError [err]
+
+evalScript Java = do
+  state <- Repl.get
+  return $ ReplSuccess (maybe "" id state.lastJavaSource)
         
 evalScript Reload = do
     state <- Repl.get
@@ -302,7 +308,7 @@ runRepl repl state = evalStateT (Repl.un repl) state
 pure native isEmpty :: String -> Bool
 
 data Command = Version | Help | Browse | BrowseModule String | Type String | Load String | Eval String | 
-    DefMulti | History | Reload | Reset | Skip | Quit where 
+    Java | DefMulti | History | Reload | Reset | Skip | Quit where
     
     parse   :: String -> Either String Command
     parse s = parse' $ trim s where
@@ -320,6 +326,7 @@ data Command = Version | Help | Browse | BrowseModule String | Type String | Loa
         maybe (Left "Missing expression!") (Right . Type) $ m.group 1
     parseCommand ":{" = Right DefMulti
     parseCommand ":history" = Right History
+    parseCommand ":java" = Right Java
     parseCommand ":r" = Right Reload
     parseCommand ":reset" = Right Reset
     parseCommand ":q" = Right Quit
@@ -332,6 +339,7 @@ derive Show Command
 initReplState :: ReplState
 initReplState = ReplState{
     lastExternalScript = Nothing,
+    lastJavaSource = Nothing,
     prompt = "frege> " --Default prompt
  }
     
@@ -341,7 +349,6 @@ initInterpreterState = do
   loader <- ClassLoader.current >>= URLClassLoader.new urlarr
   classes <- HashMap.new ()
   time <- currentTimeMillis ()
-  let history = ""
   let interpreterState = InterpreterState {
       loader = loader,
       classes = classes,
