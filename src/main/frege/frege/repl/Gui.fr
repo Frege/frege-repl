@@ -1,0 +1,88 @@
+module frege.repl.Gui where
+
+import Java.Net (URI, URL)
+import Java.Awt (Component)
+
+pure native asHyperlinkListener "(javax.swing.event.HyperlinkListener)" :: Object -> HyperlinkListener
+pure native asHyperlinkEvent "(javax.swing.event.HyperlinkEvent)" :: Object -> HyperlinkEvent
+
+
+native setSize :: Component -> Int -> Int -> IO ()
+
+data Desktop = mutable native java.awt.Desktop where
+  native getDesktop java.awt.Desktop.getDesktop :: () -> IO Desktop
+  native isDesktopSupported :: Desktop -> IO Bool
+  native browse :: Desktop -> URI -> IO () throws IOException
+
+data HyperlinkEvent = pure native javax.swing.event.HyperlinkEvent where
+  pure native getURL :: HyperlinkEvent -> Maybe URL
+  pure native getDescription :: HyperlinkEvent -> String
+  pure native getEventType :: HyperlinkEvent -> HyperlinkEvent_EventType
+
+data HyperlinkEvent_EventType = pure native javax.swing.event.HyperlinkEvent.EventType where
+  pure native entered javax.swing.event.HyperlinkEvent.EventType.ENTERED :: HyperlinkEvent_EventType
+  pure native exited javax.swing.event.HyperlinkEvent.EventType.EXITED :: HyperlinkEvent_EventType
+  pure native activated javax.swing.event.HyperlinkEvent.EventType.ACTIVATED :: HyperlinkEvent_EventType
+  pure native equals :: HyperlinkEvent_EventType -> Object -> Bool
+  pure native hashCode :: HyperlinkEvent_EventType -> Int
+  pure native toString :: HyperlinkEvent_EventType -> String
+
+data BorderLayout = mutable native java.awt.BorderLayout where
+  native new :: () -> IO BorderLayout
+              | Int -> Int -> IO BorderLayout
+  pure native north java.awt.BorderLayout.NORTH :: String
+  pure native south java.awt.BorderLayout.SOUTH :: String
+  pure native east java.awt.BorderLayout.EAST :: String
+  pure native west java.awt.BorderLayout.WEST :: String
+  pure native center java.awt.BorderLayout.CENTER :: String
+  pure native before_first_line java.awt.BorderLayout.BEFORE_FIRST_LINE :: String
+  pure native after_last_line java.awt.BorderLayout.AFTER_LAST_LINE :: String
+  pure native before_line_begins java.awt.BorderLayout.BEFORE_LINE_BEGINS :: String
+  pure native after_line_ends java.awt.BorderLayout.AFTER_LINE_ENDS :: String
+  pure native page_start java.awt.BorderLayout.PAGE_START :: String
+  pure native page_end java.awt.BorderLayout.PAGE_END :: String
+  pure native line_start java.awt.BorderLayout.LINE_START :: String
+  pure native line_end java.awt.BorderLayout.LINE_END :: String
+
+data Container = mutable native java.awt.Container where
+    native add          :: Container -> Component -> IO Component
+                         | Container -> Component -> Object -> IO ()
+
+    native setLayout    :: Container -> LayoutManager -> IO ()
+
+data JPanel = mutable native javax.swing.JPanel where
+    native new :: () -> IO JPanel
+                  | LayoutManager -> IO JPanel
+
+data LayoutManager = mutable native java.awt.LayoutManager
+
+data JScrollPane = mutable native javax.swing.JScrollPane where
+  native new :: Component -> IO JScrollPane
+  native setVerticalScrollBarPolicy :: JScrollPane -> Int -> IO ()
+  native setHorizontalScrollBarPolicy :: JScrollPane -> Int -> IO ()
+  pure native horizontal_scrollbar_as_needed javax.swing.JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED :: Int
+  pure native vertical_scrollbar_always javax.swing.JScrollPane.VERTICAL_SCROLLBAR_ALWAYS :: Int
+  pure native horizontal_scrollbar_always javax.swing.JScrollPane.HORIZONTAL_SCROLLBAR_ALWAYS :: Int
+
+data JComponent = mutable native javax.swing.JComponent where
+  native setPreferredSize :: JComponent -> Dimension -> IO ()
+
+data Dimension = mutable native java.awt.Dimension where
+  native new :: Int -> Int -> IO Dimension
+
+data JTextArea = mutable native javax.swing.JTextArea where
+  native new :: String -> Int -> Int -> IO JTextArea
+
+instance Eq HyperlinkEvent_EventType where
+  e1 == e2 = e1.equals $ asObject e2
+
+data HyperlinkListener = pure native javax.swing.event.HyperlinkListener where
+  native hyperlinkUpdate :: HyperlinkListener -> HyperlinkEvent -> IO ()
+  native clazz "javax.swing.event.HyperlinkListener.class" :: Class HyperlinkListener
+
+data JEditorPane = mutable native javax.swing.JEditorPane where
+  native new :: String -> String -> IO JEditorPane
+  native addHyperlinkListener :: JEditorPane -> HyperlinkListener -> IO ()
+  native setEditable :: JEditorPane -> Bool -> IO ()
+
+private pure native asObject "(java.lang.Object)" :: a -> Object

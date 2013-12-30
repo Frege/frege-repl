@@ -46,3 +46,6 @@ Desktop.ini
 
 
 *.versionsBackup
+
+# Ignore Intellij files
+*.iml
