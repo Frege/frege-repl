@@ -1,13 +1,18 @@
 module frege.repl.FregeRepl where
 
-import frege.compiler.Data
-import frege.compiler.Import
+import Compiler.Data
+import Compiler.Import
 import frege.Version
-import frege.java.Net 
+import Java.Net
 import Data.List
-import frege.interpreter.FregeScriptCompiler hiding(compile)
-import frege.interpreter.FregeInterpreter
-import frege.compiler.EclipseUtil as EU()
+import Interpreter.FregeScriptCompiler hiding(compile)
+import Interpreter.FregeInterpreter
+import Compiler.Utilities as U()
+import Compiler.EclipseUtil as EU()
+import Compiler.DocUtils as DU(docit, docSym, DL, Doc, emitHtml)
+import Java.Swing (JFrame, invokeLater)
+import Java.Awt (Component, ActionListener)
+import Repl.Gui
 
 data ReplState = ReplState {
     lastExternalScript :: Maybe String,
@@ -19,6 +24,7 @@ data Repl a = Repl {un :: StateT ReplState Interpreter a} where
     get = Repl $ StateT (\s -> return (s, s)) 
     put s = Repl $ StateT (\_ -> return ((), s))
     modify f = Repl $ StateT (\s -> return ((), f s))
+    run repl state = evalStateT (Repl.un repl) state
 
 instance Monad Repl where
     return = Repl . return
@@ -59,7 +65,7 @@ evalScript (Eval line) = do
                     Repl . lift . Interpreter.put $ s.{currentScript <- (++ newLine ++ line)}
                     return NoOutput
                 Expression{variableName=var} -> do
-                    res <- Repl . lift $ evalShow line
+                    res <- Repl . lift $ showVariable line var g
                     Repl . lift $ Interpreter.put oldInterpState
                     case res of
                         Left err -> return $ ReplError err
@@ -121,8 +127,9 @@ evalScript (Load filePath) = do
 
 evalScript Java = do
   state <- Repl.get
-  return $ ReplSuccess (maybe "" id state.lastJavaSource)
-        
+  showgui s = liftIO $ Runnable.new (javaSourceGUI s) >>= invokeLater >> return NoOutput
+  maybe (return NoOutput) showgui state.lastJavaSource
+
 evalScript Reload = do
     state <- Repl.get
     case state.lastExternalScript of
@@ -141,9 +148,86 @@ evalScript Reset = do
 
 evalScript Skip = return NoOutput
 evalScript Help = return $ ReplSuccess help
+
+evalScript (HelpDoc source) = do
+  fregecRes <- Repl . lift $ compile "\"\"" -- Import current definitions
+  let response = maybe (return errmsg) (\m -> liftIO (gui m) >> return NoOutput)
+      errmsg = ReplError [source ++ " cannot be resolved!"]
+      gui content = invokeLater =<< Runnable.new (helpGUI source content)
+  case fregecRes of
+    CompilationSuccess (c@CompilationInfo{state=global}) -> oneof [helpdoc, packDoc] where
+       helpdoc = fst $ StG.run (helpDoc source) global
+       packDoc = fst $ StG.run (packDocumentation source) global
+       oneof =  response . listToMaybe . catMaybes
+    _ -> response $ Just ""
+
 evalScript Version = Repl.get >>= (\s -> return $ ReplSuccess version)
 evalScript DefMulti = return NoOutput
 evalScript Quit = return NoOutput
+
+sNameToQName sName = do
+  g <- getST
+  qNames <- U.resolve (VName g.thisPack) Position.null sName
+  return (listToMaybe qNames)  -- Just taking first resolved
+
+helpDoc :: String -> StG (Maybe String)
+helpDoc source = do
+  global <- getST
+  qNameMay <- sNameToQName (createSName source)
+  let symMay = qNameMay >>= (\qname -> qname.findit global)
+  maybe (return Nothing) (\sym -> symbolDocumentation sym >>= return . Just) symMay
+
+createSName s
+  | Just (Just ns : Just ty : Just id : _) <- s `match` #^(.*)\.(.*)\.(\p{Lu}.*)$# = with2con ns ty id
+  | Just (Just ns : Just ty : Just id : _) <- s `match` #^(.*)\.(.*)\.(.*)$#       = with2var ns ty id
+  | Just (Just ty : Just id : _)           <- s `match` #^(.*)\.(\p{Lu}.*)$#       = with1con ty id
+  | Just (Just ty : Just id : _)           <- s `match` #^(.*)\.(.*)$#             = with1var ty id
+  | s ~ #^\p{Lu}.*$#                                                               = Simple (Token CONID s 1 0 0 [])
+  | otherwise                                                                      = Simple (Token VARID s 1 0 0 [])
+     where with2con ns ty id = With2 (qual ns) (qual ty) (con id)
+           with2var ns ty id = With2 (qual ns) (qual ty) (var id)
+           with1con ty id = With1 (qual ty) (con id)
+           with1var ty id = With1 (qual ty) (var id)
+           qual name = Token QUALIFIER name 1 0 0 []
+           con name = Token CONID name 1 0 0 []
+           var name = Token VARID name 1 0 0 []
+
+symbolDocumentation :: Symbol -> StG String
+symbolDocumentation sym = do
+    sw <-  doio $  StringWriter.new ()
+    p  <-  doio $  StringWriter.printer sw
+    changeST Global.{gen <- GenSt.{printer=p}}
+    g <- getST
+    let ds = docSym g sym
+        dl = DL (Just "func") [ds]
+        doc = Doc [dl]
+    emitHtml false doc      -- html without CSS, swing does not understand
+    doio $ g.printer.close
+    result <- doio $ sw.toString
+    return result
+
+packDocumentation :: String -> StG (Maybe String)
+packDocumentation pack = do
+    g <- getST
+    r <- getFP pack
+    case r of
+        Right (Just fp) -> case fp.doc of
+            ""   -> return . Just $ ("Undocumented package " ++ pack)
+            text -> do
+                let doc = Doc $ docit g (Just text)
+                sw <-  doio $  StringWriter.new ()
+                p  <-  doio $  StringWriter.printer sw
+                changeST Global.{gen <- GenSt.{printer=p}}
+                emitHtml false doc      -- html without CSS, swing does not understand
+                doio $ g.printer.close
+                result <- doio $ sw.toString
+                return . Just $ result
+        Left ex -> return Nothing
+        sonst   -> return . Just $ ("(java class?) " ++ pack)
+
+match s regex = groups <$> s =~ regex where groups m = [m.group i | i <- [1..groupCount m]]
+
+pure native groupCount :: Matcher -> Int
 
 ioException :: IOException -> Repl ReplResult    
 ioException e = return $ ReplError [Throwable.getMessage e]
@@ -176,7 +260,7 @@ showVariable source var g = do
       case symbolMay of
         Nothing -> return . Left $ ["Not found: " ++ var]
         Just symbol -> showSymbol source var symbol g
-        
+
 showSymbol source var symbol g | isVariable g symbol = do
     state <- Interpreter.get
     if isString g symbol then do
@@ -185,7 +269,7 @@ showSymbol source var symbol g | isVariable g symbol = do
             Left err -> return $ Left [err.getMessage]
             Right value -> return . Right $ toString value
     else do
-        Interpreter.put $ state.{currentScript <- (++ newLine ++ var ++ " = " ++ source)}
+        Interpreter.put $ state.{currentScript <- (++ newLine ++ (variableDeclScript var source))}
         let showScript = buildShowScript var g symbol
         showResult <- evalShow showScript
         return showResult
@@ -223,18 +307,20 @@ positionAndName a b = case Symbol.pos a <=> Symbol.pos b of
                                     Eq -> comparing (QName.base • Symbol.name) a b
                                     ne -> ne 
         
-cmdHelp = [(":type <expression>", "Display the type of an expression"),
-            (":{", "Start multiline definitions"),
-            (":}", "End multiline defintions"),
+cmdHelp = [(":type <expression>", "Display the type of an expression."),
             (":browse <module name>", "Display the names in a module if " ++
-                "a module name is provided otherwise display the names in the default REPL module"),
-            (":load <url or file>", "Load Frege code snippets from an URL or file"),
-            (":r", "Reload the last script file"),
-            (":history", "Display the source history for definitions in the default REPL module"),
-            (":reset", "Reset the session discarding all evaluated scripts"),
-            (":version", "Display Frege version"),
-            (":q or :quit", "Quit REPL"),
-            (":help", "Display this help message")]
+                "a module name is provided otherwise display the names in the default REPL module."),
+            (":load <url or file>", "Load Frege code snippets from an URL or file."),
+            (":java", "View Java translation of last compiled Frege source."),
+            (":r", "Reload the last script file."),
+            (":history", "Display the source history for definitions in the default REPL module."),
+            (":reset", "Reset the session discarding all evaluated scripts."),
+            (":version", "Display Frege version."),
+            (":{", "Start multiline definitions."),
+            (":}", "End multiline defintions."),
+            (":help <name>", "Display the documentation for the given name." ++
+                            " If the name is not provided, display this help message."),
+            (":q or :quit", "Quit REPL")]
             
 f `on` g = \x \y -> f (g x) (g y)
 
@@ -247,7 +333,7 @@ renderCmdHelp cmdHelp = map render cmdHelp where
 help = intercalate newLine $ header ++ body where
     header = ["At the prompt, you can enter Frege code snippets to get them evaluated.",
             "The output or compilation errors will be printed below the prompt.",
-            "In addition to Frege code, the following commands are supported:"]
+            "In addition to Frege code, the following commands are supported:\n"]
     body = renderCmdHelp cmdHelp
   
 runFile :: String -> Repl ()
@@ -289,25 +375,87 @@ urlContents url = do
     inStream <- URL.openStream url
     scanner <- Scanner.new inStream
     scanner.useDelimiter "\\Z"
-    scanner.next
+    scanner.next `finally` scanner.close
     
 fileContents filePath = do
     file <- File.new filePath
     scanner <- Scanner.fromFile file "utf-8"
     scanner.useDelimiter "\\Z"
-    scanner.next
+    scanner.next `finally` scanner.close
 
 data Scanner = mutable native java.util.Scanner where
     native new :: InputStream -> IO Scanner
     native fromFile new :: MutableIO File -> String -> IO Scanner throws FileNotFoundException
     native useDelimiter :: Scanner -> String -> IO ()
     native next :: Scanner -> IO String   
-    
-runRepl repl state = evalStateT (Repl.un repl) state
+
+javaSourceGUI :: String -> IO ()
+javaSourceGUI javaSource = do
+   frame::JFrame <- JFrame.new "Java Source"
+   newContentPane::JPanel <- BorderLayout.new () >>= JPanel.new
+   frame.setDefaultCloseOperation JFrame.dispose_on_close
+   editor::JEditorPane <- JEditorPane.new "text/plain" javaSource
+   editor.setEditable false
+   scrollPane <- JScrollPane.new editor
+   dimension <- Dimension.new 600 600
+   JComponent.setPreferredSize scrollPane dimension
+   Container.add newContentPane scrollPane (asObject BorderLayout.center)
+   frame.setContentPane newContentPane
+   frame.pack
+   frame.setVisible true
+
+
+helpGUI :: String -> String -> IO ()
+helpGUI title content = do
+    frame <- JFrame.new (title ++ " - Documentation")
+    frame.setDefaultCloseOperation JFrame.dispose_on_close
+    newContentPane:: JPanel <- BorderLayout.new () >>= JPanel.new
+    let html :: String
+        html = substring content $ indexOf content "<HTML>" -- Skip DOCTYPE
+    editor::JEditorPane <- JEditorPane.new "text/html" html
+    editor.setEditable false
+    helpLinksListener <- FregeJavaProxy.with showDesktop HyperlinkListener.clazz
+    editor.addHyperlinkListener helpLinksListener
+    scrollPane <- JScrollPane.new editor
+    dimension <- Dimension.new 600 600
+    JComponent.setPreferredSize scrollPane dimension
+    Container.add newContentPane scrollPane (asObject BorderLayout.center)
+    newContentPane.setOpaque true
+    frame.setContentPane newContentPane
+    frame.pack
+    frame.setVisible true
+
+data FregeJavaProxy = pure native frege.memoryjavac.FregeJavaProxy where
+  native with frege.memoryjavac.FregeJavaProxy.with :: (Object -> Method -> ObjectArr -> ST s a) -> Class c -> IO c
+
+showDesktop :: Object -> Method -> ObjectArr -> IO ()
+showDesktop _ _ args = do
+  event <- return $ asHyperlinkEvent $ args.elemAt 0
+  d <- Desktop.getDesktop ()
+  desktopSupported <- d.isDesktopSupported
+  let url = HyperlinkEvent.getURL event
+      navigateRelative = either throw d.browse . URI.new $ fixHelpLink event.getDescription
+      navigate = maybe navigateRelative (\u -> toURI u >>= d.browse) url
+  when (event.getEventType == HyperlinkEvent_EventType.activated) navigate
+
+
+fixHelpLink (m~#^\.\.(.*)$#) = maybe helpRoot (\s -> helpRoot ++ s) $ m.group 1
+fixHelpLink s = s
+
+helpRoot = "http://try.frege-lang.org/doc"
+
+native toURI :: URL -> ST s URI throws URISyntaxException
+pure native asObject "(java.lang.Object)" :: a -> Object
+
 
 pure native isEmpty :: String -> Bool
+pure native replaceAll :: String -> String -> String -> String
+pure native indexOf :: String -> String -> Int
+pure native substring :: String -> Int -> String
+                         | String -> Int -> Int -> String
 
-data Command = Version | Help | Browse | BrowseModule String | Type String | Load String | Eval String | 
+data Command = Version | Help | HelpDoc String | Browse |
+    BrowseModule String | Type String | Load String | Eval String |
     Java | DefMulti | History | Reload | Reset | Skip | Quit where
     
     parse   :: String -> Either String Command
@@ -321,8 +469,9 @@ data Command = Version | Help | Browse | BrowseModule String | Type String | Loa
     parseCommand (m~#^:l.*?\s+(.*)#) = 
         maybe (Left "Missing external script path!") (Right . Load) $ m.group 1
     parseCommand  ":version" = Right Version
+    parseCommand (m~#:help\s+(.*)#) = maybe (Right Help) (Right . HelpDoc) $ m.group 1
     parseCommand ":help" = Right Help
-    parseCommand (m~#^:t.*?\s+(.*)#) = 
+    parseCommand (m~#^:t.*?\s+(.*)#) =
         maybe (Left "Missing expression!") (Right . Type) $ m.group 1
     parseCommand ":{" = Right DefMulti
     parseCommand ":history" = Right History
@@ -348,13 +497,13 @@ initInterpreterState = do
   urlarr <- URLArray.new 0
   loader <- ClassLoader.current >>= URLClassLoader.new urlarr
   classes <- HashMap.new ()
-  time <- currentTimeMillis ()
+  time <- System.currentTimeMillis ()
   let interpreterState = InterpreterState {
       loader = loader,
       classes = classes,
-      moduleName = "script.Main" ++ show time,
+      moduleName = "repl" ++ show time ++ ".Repl",
       currentScript = "",
-      modulePrelude = ""
+      transformDefs = id
   }
   return interpreterState
 
@@ -363,7 +512,6 @@ vmName = maybe "" id $ System.getProperty "java.vm.name"
 javaVersion = maybe "" id $ System.getProperty "java.version"
 
 pure native toString :: Object -> String
-native currentTimeMillis java.lang.System.currentTimeMillis :: () -> IO Long
 
 welcome = "Welcome to Frege " ++ version ++ " (" ++ vmVendor ++ " " ++ vmName ++
     ", " ++ javaVersion ++ ")"
@@ -375,12 +523,12 @@ printResult _ NoOutput = return ()
 
 main [file] = do
   interpreterState <- initInterpreterState
-  evalInterpreter (runRepl (runFile file) initReplState) interpreterState
+  evalInterpreter (Repl.run (runFile file) initReplState) interpreterState
 main _ = do
   console <- ConsoleReader.new ()
   console.setPrompt initReplState.prompt
   console.setExpandEvents false
   console.println welcome
   interpreterState <- initInterpreterState
-  evalInterpreter (runRepl (repl console) initReplState) interpreterState
-
+  evalInterpreter (Repl.run (repl console) initReplState) interpreterState
+  System.exit 0
