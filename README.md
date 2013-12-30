@@ -13,6 +13,14 @@ In addition to Frege code, the following commands are supported:
 <td>Display the type of an expression</td>
 </tr>
 <tr>
+<td>:browse &lt;moduleName&gt;</td>
+<td>Display the names in a module if a module name is provided otherwise display the names in the default REPL module</td>
+</tr>
+<tr>
+<td>:java</td>
+<td>View Java translation of last compiled Frege source</td>
+</tr>
+<tr>
 <td>:{</td>
 <td>Start multiline definitions</td>
 </tr>
@@ -21,11 +29,7 @@ In addition to Frege code, the following commands are supported:
 <td>End multiline definitions</td>
 </tr>
 <tr>
-<td>:browse &lt;moduleName&gt;</td>
-<td>Display the names in a module if a module name is provided otherwise display the names in the default REPL module</td>
-</tr>
-<tr>
-<td>:l &lt;url or file&gt;</td>
+<td>:load &lt;url or file&gt;</td>
 <td>Load Frege code snippets from an URL or file</td>
 </tr>
 <tr>
@@ -45,12 +49,12 @@ In addition to Frege code, the following commands are supported:
 <td>Display Frege version</td>
 </tr>
 <tr>
-<td>:q or :quit</td>
-<td>Quit REPL</td>
+<td>:help &lt;name&gt;</td>
+<td>Display the documentation for the given name. If the name is not provided, display this help message</td>
 </tr>
 <tr>
-<td>:help</td>
-<td>Display this help message</td>
+<td>:q or :quit</td>
+<td>Quit REPL</td>
 </tr>
 </table>
 
