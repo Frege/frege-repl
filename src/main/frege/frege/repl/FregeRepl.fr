@@ -498,10 +498,11 @@ initInterpreterState = do
   loader <- ClassLoader.current >>= URLClassLoader.new urlarr
   classes <- HashMap.new ()
   time <- System.currentTimeMillis ()
+  let base36 = longToString time 36
   let interpreterState = InterpreterState {
       loader = loader,
       classes = classes,
-      moduleName = "repl" ++ show time ++ ".Repl",
+      moduleName = "repl" ++ base36 ++ ".Repl",
       currentScript = "",
       transformDefs = id
   }
@@ -512,6 +513,7 @@ vmName = maybe "" id $ System.getProperty "java.vm.name"
 javaVersion = maybe "" id $ System.getProperty "java.version"
 
 pure native toString :: Object -> String
+pure native longToString Long.toString :: Long -> Int -> String
 
 welcome = "Welcome to Frege " ++ version ++ " (" ++ vmVendor ++ " " ++ vmName ++
     ", " ++ javaVersion ++ ")"
