@@ -1,6 +1,7 @@
 module frege.repl.FregeRepl where
 
-import Compiler.Data
+import Compiler.Data hiding (Message, Severity)
+import Compiler.Data (Severity(), Message CompilerMessage)
 import frege.Version
 import Java.Net
 import Data.List
@@ -13,15 +14,13 @@ import Repl.Gui
 import frege.Prelude hiding (print)
 import frege.Prelude (print pPrint)
 
-data ReplState = ReplState {
+data ReplEnv = ReplEnv {
     lastExternalScript :: Maybe String,
     lastJavaSource :: Maybe String,
     prompt :: String,
     env :: Environment
-}
-
-initReplState :: ReplState
-initReplState = ReplState {
+} where
+  default = ReplEnv {
     lastExternalScript = Nothing,
     lastJavaSource = Nothing,
     prompt = "frege> ", --Default prompt
@@ -29,113 +28,153 @@ initReplState = ReplState {
  }
 
 
-data ReplResult = ReplResult ReplInfo ReplState
+data ReplResult = ReplResult {out :: ReplOut, env :: ReplEnv, messages :: [Message]}
 
-data ReplInfo = EvalError [String]
-              | EvalMessage String
-              | Def
-              | ModuleDef String
-              | EvalNoOutput
-              | Interpret String String
+data ReplOut = EvalError
+             | EvalSuccess
+             | Def
+             | ModuleDef String
+             | EvalNoOutput
+             | Interpret String String
 
-repl :: ConsoleReader -> ReplState -> IO ()
-repl console state = do
-  cmd <- read console state
-  let res@(ReplResult evalRes newState) = evalScript cmd state
-  print console cmd evalRes newState
-  loop console cmd res state
+repl :: ConsoleReader -> ReplEnv -> IO ()
+repl console env = do
+  cmd <- read console env
+  let res = eval cmd env
+  print console cmd res
+  loop console cmd res env
 
-read :: ConsoleReader -> ReplState -> IO Command
+read :: ConsoleReader -> ReplEnv -> IO Command
 read console state = do
-                       console.println ""
-                       line <- console.readLine state.prompt
-                       case Command.parse line of
-                         Left err -> (console.println err) >> read console state
-                         Right DefMulti -> readPasteScript console "" "" >>= (return . Eval)
-                         Right cmd -> return cmd
+   console.println ""
+   line <- console.readLine state.prompt
+   case Command.parse line of
+     Left err -> (console.println err) >> read console state
+     Right DefMulti -> readMultiline console "" "" >>= (return . Eval)
+     Right cmd -> return cmd
 
-print :: ConsoleReader -> Command -> ReplInfo -> ReplState -> IO ()
-print console Java (EvalMessage javaSrc) _       = javaSourceGUI javaSrc
-print console (HelpDoc src) (EvalMessage help) _ = helpGUI src help
-print console _ (EvalError errs)       _         = console.println $ intercalate newLine errs
-print console _ Def                    _         = console.println ""
-print console _ (ModuleDef moduleName) _         = console.println $ "Loaded module: " ++ moduleName
-print console _ (EvalMessage message)  _         = console.println message
+print :: ConsoleReader -> Command -> ReplResult -> IO ()
+print console Java (ReplResult{out=EvalSuccess, messages=(Message _ javaSrc:_)})       = javaSourceGUI javaSrc
+print console (HelpDoc src) (ReplResult{out=EvalSuccess, messages=(Message _ help:_)}) = helpGUI src help
+print console _ (ReplResult{out=EvalError,messages=errs})               = console.println $ Message.showMessages errs
+print console _ (ReplResult{out=Def,messages=msgs})                     = console.println $ Message.showMessages msgs
+print console _ (ReplResult{out=ModuleDef moduleName,messages=msgs})    = do
+  console.println $ "Loaded module: " ++ moduleName
+  console.println $ Message.showMessages msgs
+print console _ (ReplResult{out=EvalSuccess, messages=msgs})            = console.println $ Message.showMessages msgs
 print console _
-  (Interpret className var) state                = console.println res where
-                                                     value = fieldValue className var state.env.loader
-                                                     res = maybe (var ++ " not found!") id value
-print _ _ _ _                                    = return ()
+  (ReplResult{out=Interpret className var,env=state})          = do
+      valEither <- fieldValue className var state.env.loader
+      console.println $ maybe "undefined" id valEither
+  `catch` (println . showThrowableCause)
 
-loop :: ConsoleReader -> Command -> ReplResult -> ReplState -> IO ()
+print _ _ _                                                    = return ()
+
+loop :: ConsoleReader -> Command -> ReplResult -> ReplEnv -> IO ()
 loop console Quit _ _ = return ()
-loop console (Eval _) (ReplResult (Interpret _ _) newState) state =
+loop console (Eval _) (ReplResult (Interpret _ _) newState _) state =
   repl console state.{lastJavaSource=newState.lastJavaSource}
-loop console _ (ReplResult _ newState) state = repl console newState
+loop console _ (ReplResult _ newState _) state = repl console newState
 
-evalScript :: Command -> ReplState -> ReplResult
-evalScript (Eval line) state = case compileWithEnv line state.env of
-        CompilationSuccess {javaSource=javaSrc, sourceInfo=sourceInfo,state=g, classLoader=loader} ->
-          let newState = state.{lastJavaSource=Just javaSrc,
-                                env<-Environment.{loader=loader}
-                                   }
+eval :: Command -> ReplEnv -> ReplResult
+eval (Eval line) state = case typecheck line state.env of
+        Right (TypecheckResult {sourceInfo=sourceInfo,state=g}) ->
+          let (javacInterpState, javacState) = javac g state
+              messages                       = Message.translateCompilerMessages $ g.sub.messages
+              fail                       = failure state javacInterpState
           in case sourceInfo of
-                Module -> ReplResult (ModuleDef (className g)) newState
-                Definitions -> ReplResult EvalNoOutput newState.{
-                                  env <- Environment.{predefs <- ((:) line)}}
-                Expression{variableName=var} -> showVariable var line newState g
-        CompilationFailure compilerState -> ReplResult (EvalError (showMessages compilerState)) state
+            Module -> let success state = ReplResult (ModuleDef (className javacInterpState)) state messages
+                      in maybe fail success javacState
+            Definitions -> ReplResult EvalNoOutput state.{env <- Environment.{predefs <- ((:) line)}} messages
+            Expression{variableName=var} ->
+              maybe fail (\newState -> showVariable var line newState javacInterpState) javacState
+        Left compilerState -> failure state compilerState
 
-evalScript (BrowseModule moduleName) state = ReplResult res state where
+eval (BrowseModule moduleName) state = ReplResult res state msgs where
   global = extractGlobal state.env.loader
-  res = EvalMessage . intercalate newLine $ outlineModule moduleName global
+  (res, msgs) = (EvalSuccess, [message . intercalate newLine $ outlineModuleSymbols moduleName global])
 
-evalScript Browse state = case compileWithEnv "\"\"" state.env of
-  CompilationSuccess {state=g} -> evalScript (BrowseModule $ className g) state
-  CompilationFailure compilerState -> ReplResult (EvalError (showMessages compilerState)) state
+eval Browse state
+ | [] <- state.env.predefs = ReplResult EvalNoOutput state []
+ | otherwise = either (failure state) showSymbols $ typecheck currDefs state.env.{predefs=[]}
+   where
+    showSymbols (TypecheckResult {state=g}) = ReplResult res state msgs where
+      (res, msgs) = (EvalSuccess, [message . intercalate newLine $ outlineSymbols g])
+    currDefs = concat . intersperse newLine $ reverse state.env.predefs
 
-evalScript (Type expr) state = case compileWithEnv expr state.env of
-   CompilationSuccess {sourceInfo=Expression{variableName=var},state=g, classLoader=loader} ->
-      ReplResult res state where
-          res = maybe (EvalError ["Not an expression!"]) (\s -> EvalMessage $ getSymbolType s g) symMaybe
+eval (Type expr) state = case typecheck expr state.env of
+   Right (TypecheckResult {sourceInfo=Expression{variableName=var},state=g}) ->
+      ReplResult res state msgs where
+          (res, msgs) = maybe (EvalError, [Message ERROR "Not an expression!"])
+                          (\s -> (EvalSuccess, [message $ getSymbolType s g])) symMaybe
           symMaybe = lookupVarSymbol g.thisTab var
-   CompilationSuccess {state=g}                         -> ReplResult EvalNoOutput state
-   CompilationFailure compilerState -> ReplResult (EvalError (showMessages compilerState)) state
+   Right (TypecheckResult {state=g})                         -> ReplResult EvalNoOutput state []
+   Left compilerState -> failure state compilerState
 
-evalScript Java state = ReplResult res state where
- res = maybe EvalNoOutput EvalMessage state.lastJavaSource
+eval Java state = ReplResult res state msgs where
+ (res, msgs) = maybe (EvalNoOutput, [Message INFO ""]) (\m -> (EvalSuccess, [message m])) state.lastJavaSource
 
-evalScript History state = ReplResult (EvalMessage $ unlines state.env.predefs) state
+eval History state = ReplResult EvalSuccess state [message . unlines . reverse $ state.env.predefs]
 
-evalScript Reset _ = ReplResult EvalNoOutput initReplState
+eval Reset _ = ReplResult EvalNoOutput ReplEnv.default []
 
-evalScript (HelpDoc source) state
- | CompilationSuccess {state=g} <- compileWithEnv "\"\"" state.env =
-      let res = maybe (EvalError [source ++ "cannot be resolved!"]) EvalMessage (helpDoc source g) in ReplResult res state
- | otherwise      = ReplResult (EvalError ["Internal Error!"]) state
+eval (HelpDoc source) state
+ | Right (TypecheckResult {state=g}) <- typecheck (currDefs state.env.predefs) state.env.{predefs=[]} = help g
+ | otherwise      = fail
+   where
+     currDefs [] = "\"\""
+     currDefs xs = concat . intersperse newLine $ reverse xs
+     fail = ReplResult EvalError state [Message ERROR (source ++ " cannot be resolved!")]
+     help g = maybe fail (\m -> ReplResult EvalSuccess state $ [message m]) $ helpDoc source g
 
+eval Version state = ReplResult EvalSuccess state [Message INFO version]
+eval Help state = ReplResult EvalSuccess state [Message INFO help]
+eval _ state = ReplResult EvalNoOutput state []
 
-evalScript Version state = ReplResult (EvalMessage version) state
-evalScript Help state = ReplResult (EvalMessage help) state
-evalScript _ state = ReplResult EvalNoOutput state
+data MessageType = INFO | ERROR | WARNING | HINT where
+  translateCompilerMsgType Severity.HINT = HINT
+  translateCompilerMsgType Severity.WARNING = WARNING
+  translateCompilerMsgType Severity.ERROR = ERROR
+derive Show MessageType
+
+data Message = Message {msgType :: MessageType, text :: String} where
+  showMessages = intercalate newLine . map show
+  translateCompilerMessages [] = []
+  translateCompilerMessages ((CompilerMessage.Msg pos sev text):ms) =
+    Message (MessageType.translateCompilerMsgType sev) text : translateCompilerMessages ms
+
+instance Show Message where
+  show (Message INFO txt) = txt
+  show (Message typ txt) = "[" ++ show typ ++ "]: " ++ txt
+message m = Message INFO m
 
 showVariable var source state g = maybe evalError showSym $ lookupVarSymbol g.thisTab var where
-  evalError = ReplResult (EvalError [var ++ " cannot be resolved!"]) state
+  evalError = ReplResult EvalError state [Message INFO (var ++ " cannot be resolved!")]
   showSym = showSymbol source state var g
 
+showSymbol :: String -> ReplEnv -> String -> Global -> Symbol -> ReplResult
 showSymbol source state var g symbol
-  | isVariable g symbol = if isString g symbol then ReplResult (Interpret (className g) var) state
-                          else evalScript (Eval showScript) newState
-  | otherwise           = ReplResult (EvalMessage $ getSymbolType symbol g) state
+  | isVariable g symbol = if isString g symbol then ReplResult (Interpret (className g) var) state []
+                          else eval (Eval showScript) newState
+  | otherwise           = ReplResult EvalSuccess state [Message INFO (getSymbolType symbol g)]
     where
          newState = state.{env <- Environment.{predefs <- ((:) (variableDeclScript var source))}}
          showScript = buildShowScript var g symbol
 
-readPasteScript :: ConsoleReader -> String -> String -> IO String
-readPasteScript _ ":}" !acc = return acc
-readPasteScript console curr !acc = do
+failure :: ReplEnv -> Global -> ReplResult
+failure replState interpreterState = ReplResult EvalError replState $ Message.translateCompilerMessages interpreterState.sub.messages
+
+javac :: Global -> ReplEnv -> (Global, Maybe ReplEnv)
+javac global state = case javagen global state.env of
+                       Right (JavagenResult {javaSource=javaSrc,state=g, classLoader=loader}) -> (g, Just newState) where
+                         newState = state.{lastJavaSource=Just javaSrc, env<-Environment.{loader=loader}}
+                       Left compilerState -> (compilerState, Nothing)
+
+readMultiline :: ConsoleReader -> String -> String -> IO String
+readMultiline _ ":}" !acc = return acc
+readMultiline console curr !acc = do
     line <- console.readLine ""
-    readPasteScript console line (acc ++ newLine ++ curr)
+    readMultiline console line (acc ++ newLine ++ curr)
 
 positionAndName a b = case Symbol.pos a <=> Symbol.pos b of
                                     Eq -> comparing (QName.base • Symbol.name) a b
@@ -308,8 +347,8 @@ welcome = "Welcome to Frege " ++ version ++ " (" ++ vmVendor ++ " " ++ vmName ++
 
 main _ = do
   console <- ConsoleReader.new ()
-  console.setPrompt initReplState.prompt
+  console.setPrompt ReplEnv.default.prompt
   console.setExpandEvents false
   console.println welcome
-  repl console initReplState
+  repl console ReplEnv.default
   System.exit 0
