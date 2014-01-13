@@ -1,7 +1,5 @@
 module frege.repl.FregeRepl where
 
-import Compiler.Data hiding (Message, Severity)
-import Compiler.Data (Severity(), Message CompilerMessage)
 import frege.Version
 import Java.Net
 import Data.List
@@ -14,29 +12,6 @@ import Repl.Gui
 import frege.Prelude hiding (print)
 import frege.Prelude (print pPrint)
 
-data ReplEnv = ReplEnv {
-    lastExternalScript :: Maybe String,
-    lastJavaSource :: Maybe String,
-    prompt :: String,
-    env :: Environment
-} where
-  default = ReplEnv {
-    lastExternalScript = Nothing,
-    lastJavaSource = Nothing,
-    prompt = "frege> ", --Default prompt
-    env = Environment.default
- }
-
-
-data ReplResult = ReplResult {out :: ReplOut, env :: ReplEnv, messages :: [Message]}
-
-data ReplOut = EvalError
-             | EvalSuccess
-             | Def
-             | ModuleDef String
-             | EvalNoOutput
-             | Interpret String String
-
 repl :: ConsoleReader -> ReplEnv -> IO ()
 repl console env = do
   cmd <- read console env
@@ -48,10 +23,26 @@ read :: ConsoleReader -> ReplEnv -> IO Command
 read console state = do
    console.println ""
    line <- console.readLine state.prompt
+   let readAgain = read console state
    case Command.parse line of
-     Left err -> (console.println err) >> read console state
-     Right DefMulti -> readMultiline console "" "" >>= (return . Eval)
+     Left err -> (console.println err) >> readAgain
+     Right DefMulti -> readMultiline console >>= (return . Eval)
+     Right Reload -> maybe readAgain (readExternal console state) state.lastExternalScript
+     Right (Load path) -> readExternal console state path
      Right cmd -> return cmd
+
+readExternal :: ConsoleReader -> ReplEnv -> String -> IO Command
+readExternal console state (urlSpec@#.*?://.*#) = do
+  url <- URL.new urlSpec
+  let fetch = urlContents url >>= (return . Right)
+      handleIOE (ioe :: IOException) = return $ Left ioe.getMessage
+  script <- fetch `catch` handleIOE
+  either (\err -> (console.println err) >> read console state)
+    (return . LoadExternal urlSpec) script
+readExternal console state filePath = do
+   script <- safeSlurp filePath
+   either (\err -> (console.println err) >> read console state)
+                   (return . LoadExternal filePath) script
 
 print :: ConsoleReader -> Command -> ReplResult -> IO ()
 print console Java (ReplResult{out=EvalSuccess, messages=(Message _ javaSrc:_)})       = javaSourceGUI javaSrc
@@ -67,7 +58,6 @@ print console _
       valEither <- fieldValue className var state.env.loader
       console.println $ maybe "undefined" id valEither
   `catch` (println . showThrowableCause)
-
 print _ _ _                                                    = return ()
 
 loop :: ConsoleReader -> Command -> ReplResult -> ReplEnv -> IO ()
@@ -76,109 +66,34 @@ loop console (Eval _) (ReplResult (Interpret _ _) newState _) state =
   repl console state.{lastJavaSource=newState.lastJavaSource}
 loop console _ (ReplResult _ newState _) state = repl console newState
 
-eval :: Command -> ReplEnv -> ReplResult
-eval (Eval line) state = case typecheck line state.env of
-        Right (TypecheckResult {sourceInfo=sourceInfo,state=g}) ->
-          let (javacInterpState, javacState) = javac g state
-              messages                       = Message.translateCompilerMessages $ g.sub.messages
-              fail                       = failure state javacInterpState
-          in case sourceInfo of
-            Module -> let success state = ReplResult (ModuleDef (className javacInterpState)) state messages
-                      in maybe fail success javacState
-            Definitions -> ReplResult EvalNoOutput state.{env <- Environment.{predefs <- ((:) line)}} messages
-            Expression{variableName=var} ->
-              maybe fail (\newState -> showVariable var line newState javacInterpState) javacState
-        Left compilerState -> failure state compilerState
-
-eval (BrowseModule moduleName) state = ReplResult res state msgs where
-  global = extractGlobal state.env.loader
-  (res, msgs) = (EvalSuccess, [message . intercalate newLine $ outlineModuleSymbols moduleName global])
-
-eval Browse state
- | [] <- state.env.predefs = ReplResult EvalNoOutput state []
- | otherwise = either (failure state) showSymbols $ typecheck currDefs state.env.{predefs=[]}
-   where
-    showSymbols (TypecheckResult {state=g}) = ReplResult res state msgs where
-      (res, msgs) = (EvalSuccess, [message . intercalate newLine $ outlineSymbols g])
-    currDefs = concat . intersperse newLine $ reverse state.env.predefs
-
-eval (Type expr) state = case typecheck expr state.env of
-   Right (TypecheckResult {sourceInfo=Expression{variableName=var},state=g}) ->
-      ReplResult res state msgs where
-          (res, msgs) = maybe (EvalError, [Message ERROR "Not an expression!"])
-                          (\s -> (EvalSuccess, [message $ getSymbolType s g])) symMaybe
-          symMaybe = lookupVarSymbol g.thisTab var
-   Right (TypecheckResult {state=g})                         -> ReplResult EvalNoOutput state []
-   Left compilerState -> failure state compilerState
-
-eval Java state = ReplResult res state msgs where
- (res, msgs) = maybe (EvalNoOutput, [Message INFO ""]) (\m -> (EvalSuccess, [message m])) state.lastJavaSource
-
-eval History state = ReplResult EvalSuccess state [message . unlines . reverse $ state.env.predefs]
-
+eval (Eval line) state = interpret line state
+eval (Type expr) state = typeof expr state
+eval (LoadExternal src script) state = ReplResult interpResult.out newState interpResult.messages where
+  interpResult = interpret script state
+  newState = interpResult.env.{lastExternalScript=Just src}
+eval (BrowseModule moduleName) state = browseModule moduleName state
+eval Browse state = browse state
+eval (HelpDoc name) state = docHelp name state
+eval Java state = javaSource state
+eval History state = history state
 eval Reset _ = ReplResult EvalNoOutput ReplEnv.default []
-
-eval (HelpDoc source) state
- | Right (TypecheckResult {state=g}) <- typecheck (currDefs state.env.predefs) state.env.{predefs=[]} = help g
- | otherwise      = fail
-   where
-     currDefs [] = "\"\""
-     currDefs xs = concat . intersperse newLine $ reverse xs
-     fail = ReplResult EvalError state [Message ERROR (source ++ " cannot be resolved!")]
-     help g = maybe fail (\m -> ReplResult EvalSuccess state $ [message m]) $ helpDoc source g
-
 eval Version state = ReplResult EvalSuccess state [Message INFO version]
 eval Help state = ReplResult EvalSuccess state [Message INFO help]
 eval _ state = ReplResult EvalNoOutput state []
 
-data MessageType = INFO | ERROR | WARNING | HINT where
-  translateCompilerMsgType Severity.HINT = HINT
-  translateCompilerMsgType Severity.WARNING = WARNING
-  translateCompilerMsgType Severity.ERROR = ERROR
-derive Show MessageType
+javaSource state = ReplResult res state msgs where
+ (res, msgs) = maybe (EvalNoOutput, [Message INFO ""]) (\m -> (EvalSuccess, [Message INFO m])) state.lastJavaSource
 
-data Message = Message {msgType :: MessageType, text :: String} where
-  showMessages = intercalate newLine . map show
-  translateCompilerMessages [] = []
-  translateCompilerMessages ((CompilerMessage.Msg pos sev text):ms) =
-    Message (MessageType.translateCompilerMsgType sev) text : translateCompilerMessages ms
+history state = ReplResult EvalSuccess state [Message INFO . unlines . reverse $ state.env.predefs]
 
-instance Show Message where
-  show (Message INFO txt) = txt
-  show (Message typ txt) = "[" ++ show typ ++ "]: " ++ txt
-message m = Message INFO m
-
-showVariable var source state g = maybe evalError showSym $ lookupVarSymbol g.thisTab var where
-  evalError = ReplResult EvalError state [Message INFO (var ++ " cannot be resolved!")]
-  showSym = showSymbol source state var g
-
-showSymbol :: String -> ReplEnv -> String -> Global -> Symbol -> ReplResult
-showSymbol source state var g symbol
-  | isVariable g symbol = if isString g symbol then ReplResult (Interpret (className g) var) state []
-                          else eval (Eval showScript) newState
-  | otherwise           = ReplResult EvalSuccess state [Message INFO (getSymbolType symbol g)]
-    where
-         newState = state.{env <- Environment.{predefs <- ((:) (variableDeclScript var source))}}
-         showScript = buildShowScript var g symbol
-
-failure :: ReplEnv -> Global -> ReplResult
-failure replState interpreterState = ReplResult EvalError replState $ Message.translateCompilerMessages interpreterState.sub.messages
-
-javac :: Global -> ReplEnv -> (Global, Maybe ReplEnv)
-javac global state = case javagen global state.env of
-                       Right (JavagenResult {javaSource=javaSrc,state=g, classLoader=loader}) -> (g, Just newState) where
-                         newState = state.{lastJavaSource=Just javaSrc, env<-Environment.{loader=loader}}
-                       Left compilerState -> (compilerState, Nothing)
-
-readMultiline :: ConsoleReader -> String -> String -> IO String
-readMultiline _ ":}" !acc = return acc
-readMultiline console curr !acc = do
+readMultiline :: ConsoleReader -> IO String
+readMultiline console = intercalate newLine . reverse <$> f [] where
+  f acc = do
     line <- console.readLine ""
-    readMultiline console line (acc ++ newLine ++ curr)
+    if (line == ":}")
+      then return acc
+      else f (line : acc)
 
-positionAndName a b = case Symbol.pos a <=> Symbol.pos b of
-                                    Eq -> comparing (QName.base • Symbol.name) a b
-                                    ne -> ne
 
 cmdHelp = [(":type <expression>", "Display the type of an expression."),
             (":browse <module name>", "Display the names in a module if " ++
@@ -210,7 +125,7 @@ help = intercalate newLine $ header ++ body where
     body = renderCmdHelp cmdHelp
 
 
-safeSlurp :: String -> IO (Either String String)
+safeSlurp :: String -> IO (String | String)
 safeSlurp file = fetch file `catch` handleIOE where
         fetch file = fileContents file >>= (return . Right)
         handleIOE :: IOException -> IO (Either String String)
@@ -307,7 +222,7 @@ pure native substring :: String -> Int -> String
                          | String -> Int -> Int -> String
 
 data Command = Version | Help | HelpDoc String | Browse |
-    BrowseModule String | Type String | Load String | Eval String |
+    BrowseModule String | Type String | Load String | LoadExternal String String | Eval String |
     Java | DefMulti | History | Reload | Reset | Skip | Quit where
 
     parse   :: String -> Either String Command
