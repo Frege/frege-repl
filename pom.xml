@@ -138,18 +138,8 @@
     </dependency>
     <dependency>
       <groupId>frege</groupId>
-      <artifactId>frege-interpreter</artifactId>
+      <artifactId>frege-interpreter-core</artifactId>
       <version>${frege.scripting.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>frege</groupId>
-      <artifactId>memory-javac</artifactId>
-      <version>${frege.scripting.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.eclipse.jdt.core.compiler</groupId>
-      <artifactId>ecj</artifactId>
-      <version>${ecj.version}</version>
     </dependency>
   </dependencies>
 </project>
