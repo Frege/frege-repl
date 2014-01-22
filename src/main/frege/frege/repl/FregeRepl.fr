@@ -76,12 +76,10 @@ print console _ (InterpreterResult{typ=EvalSuccess, messages=msgs})           = 
 print console _
   (InterpreterResult{typ=Interpret symbol g _, env=state})                    = do
       let res = showableSymbol state g symbol
-      case res of
-        Just (sym, g, newInterpEnv) -> do
-          valEither <- fieldValue (symbolClass sym g) (symbolVar sym) newInterpEnv.loader
-          console.println $ maybe "undefined" id valEither
-        Nothing -> console.println $ showSymbol g symbol
-        _ -> return ()
+          getValue (sym, g, newInterpEnv) = do
+            valMaybe <- fieldValue (symbolClass sym g) (symbolVar sym) newInterpEnv.loader
+            console.println $ maybe "undefined" id valMaybe
+      maybe (console.println $ getSymbolType g symbol) getValue res
   `catch` (println . showThrowableCause)
 print _ _ _                                                    = return ()
 
@@ -246,7 +244,8 @@ helpGUI title content = do
     frame.setVisible true
 
 data FregeJavaProxy = pure native frege.interpreter.javasupport.FregeJavaProxy where
-  native with frege.interpreter.javasupport.FregeJavaProxy.with :: (Object -> Method -> ObjectArr -> ST s a) -> Class c -> IO c
+  native with frege.interpreter.javasupport.FregeJavaProxy.with ::
+    (Object -> Method -> ObjectArr -> ST s a) -> Class c -> IO c
 
 showDesktop :: Object -> Method -> ObjectArr -> IO ()
 showDesktop _ _ args = do
