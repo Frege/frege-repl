@@ -10,21 +10,22 @@ import Compiler.Utilities as U()
 import Compiler.EclipseUtil as EU()
 import Java.Swing (JFrame, invokeLater)
 import Java.Awt (Component, ActionListener)
+import Java.Util (Scanner)
 import Repl.Gui
 import frege.Prelude hiding (print)
 import frege.Prelude (print pPrint)
 import Control.monad.State public(State)
 
 data ReplEnv = ReplEnv {
-  lastExpr :: Maybe String,
+  lastJavaGenSrc :: Maybe String,
   lastExternalScript :: Maybe String,
   prompt :: String,
   config :: InterpreterConfig,
   state :: InterpreterState
 } where
   default = ReplEnv {
-    lastExpr = Nothing,
-    lastExternalScript = Nothing,
+    lastJavaGenSrc = Nothing, -- To display last generated Java Source
+    lastExternalScript = Nothing, -- To reload last external script
     prompt = "frege> ",
     config = InterpreterConfig.default,
     state = InterpreterState InterpreterClassLoader.default
@@ -125,11 +126,11 @@ eval (Eval line) = do
     InterpreterResult.Success{sourceRepr=sourceRepr, compilerState=g} -> do
       case sourceRepr of
         Module{} -> do
-          Repl.modify ReplEnv.{state = newState}
+          Repl.modify ReplEnv.{lastJavaGenSrc=Just line, state = newState}
         Definitions{} -> do
-          Repl.modify ReplEnv.{config <- InterpreterConfig.{predefs<-(line:)}}
+          Repl.modify ReplEnv.{lastJavaGenSrc=Nothing, config <- InterpreterConfig.{predefs<-(line:)}}
         Expression{} -> do
-          Repl.modify ReplEnv.{lastExpr=Just line, state = newState}
+          Repl.modify ReplEnv.{lastJavaGenSrc=Just line, state = newState}
       return $ CodeInfo sourceRepr g (Message.fromGlobal g)
     InterpreterResult.Failure messages -> return $ ReplInfo messages
 
@@ -162,9 +163,15 @@ eval (HelpDoc name) = do
 
 eval Java = do
   env <- Repl.get
-  case env.config.predefs of
-    [] -> maybe (return (JavaSource "")) (\src -> java src []) env.lastExpr
-    predefs -> maybe (java (unlines $ reverse predefs) []) (\src -> java src predefs) env.lastExpr
+  let javagenDefs [] = return (ReplInfo [Message.info "Empty source!"])
+      javagenDefs defs = do
+        oldEnv <- Repl.get
+        Repl.modify ReplEnv.{config <- InterpreterConfig.{predefs=[]}}
+        res <- java (unlines $ reverse defs)
+        Repl.put oldEnv
+        return res
+  maybe (javagenDefs env.config.predefs) (\src -> java src) env.lastJavaGenSrc
+
 
 eval History = do
   env <- Repl.get
@@ -172,7 +179,7 @@ eval History = do
 
 eval Reset = Repl.put ReplEnv.default >> return (ReplInfo [])
 eval Version = return $ ReplInfo [Message.info version]
-eval Help = return $ ReplInfo [Message.info help]
+eval Help = return $ ReplInfo [Message.info (help cmdHelp)]
 eval _ = return $ ReplInfo []
 
 symbolsToReplInfo syms g = ReplInfo $ map (Message.info . showSymbol g) wantedSyms where
@@ -181,7 +188,7 @@ symbolsToReplInfo syms g = ReplInfo $ map (Message.info . showSymbol g) wantedSy
     | sym.{alias?} = false
     | otherwise = true
 
-java src predefs = do
+java src = do
     env <- Repl.get
     let res = fst $ Interpreter.run (javaSource src) env.config env.state
     return $ either ReplInfo JavaSource res
@@ -221,7 +228,7 @@ cmdHelp = [(":t or :type <expression>", "Display the type of an expression."),
                 "a module name is provided otherwise display the names in the default REPL module."),
             (":load <url or file>", "Load Frege code snippets from an URL or file."),
             (":java", "View Java translation of last compiled Frege source."),
-            (":r", "Reload the last script file."),
+            (":r", "Reload the last url or file source."),
             (":history", "Display the source history for definitions in the default REPL module."),
             (":reset", "Reset the session discarding all evaluated scripts."),
             (":version", "Display Frege version."),
@@ -237,7 +244,7 @@ renderCmdHelp cmdHelp = map render cmdHelp where
         " - " ++ desc
     render (cmd, desc) = indent cmd desc maxLeftIndent
 
-help = intercalate newLine $ header ++ body where
+help cmdHelp = intercalate newLine $ header ++ body where
     header = ["At the prompt, you can enter Frege code snippets to get them evaluated.",
             "The output or compilation errors will be printed below the prompt.",
             "In addition to Frege code, the following commands are supported:\n"]
@@ -254,21 +261,17 @@ data ConsoleReader = mutable native jline.console.ConsoleReader where
 
 urlContents url = do
     inStream <- URL.openStream url
-    scanner <- Scanner.new inStream
-    scanner.useDelimiter "\\Z"
+    scanner <- scannerFromInputStream inStream
+    scanner.useDelimiter #\Z#
     scanner.next `finally` scanner.close
 
 fileContents filePath = do
     file <- File.new filePath
-    scanner <- Scanner.fromFile file "utf-8"
-    scanner.useDelimiter "\\Z"
+    scanner <- Scanner.new file "utf-8"
+    scanner.useDelimiter #\Z#
     scanner.next `finally` scanner.close
 
-data Scanner = mutable native java.util.Scanner where
-    native new :: InputStream -> IO Scanner
-    native fromFile new :: MutableIO File -> String -> IO Scanner throws FileNotFoundException
-    native useDelimiter :: Scanner -> String -> IO ()
-    native next :: Scanner -> IO String
+native scannerFromInputStream new :: InputStream -> IOMutable Scanner
 
 javaSourceGUI :: String -> IO ()
 javaSourceGUI javaSource = do
