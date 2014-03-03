@@ -4,137 +4,215 @@ import frege.Version
 import Java.Net
 import Data.List
 import Interpreter.FregeInterpreter
-import Compiler.Data (Symbol)
+import Compiler.Data (Symbol, Global, StG, Definition)
+import Compiler.BaseTypes (Position)
 import Compiler.Utilities as U()
 import Compiler.EclipseUtil as EU()
 import Java.Swing (JFrame, invokeLater)
 import Java.Awt (Component, ActionListener)
+import Java.Util (Scanner)
 import Repl.Gui
 import frege.Prelude hiding (print)
 import frege.Prelude (print pPrint)
+import Control.monad.State public(State)
 
 data ReplEnv = ReplEnv {
-  lastJavaSource :: Maybe String,
+  lastJavaGenSrc :: Maybe String,
   lastExternalScript :: Maybe String,
   prompt :: String,
-  interpreterEnv :: InterpreterEnv
+  config :: InterpreterConfig,
+  state :: InterpreterState
 } where
   default = ReplEnv {
-    lastJavaSource = Nothing,
-    lastExternalScript = Nothing,
+    lastJavaGenSrc = Nothing, -- To display last generated Java Source
+    lastExternalScript = Nothing, -- To reload last external script
     prompt = "frege> ",
-    interpreterEnv = InterpreterEnv.default
+    config = InterpreterConfig.default,
+    state = InterpreterState InterpreterClassLoader.default
   }
+
+data Repl a = Repl {un :: State ReplEnv a} where
+  get = Repl $ State.get
+  put s = Repl $ State.put s
+  modify f = do
+      s <- Repl.get
+      Repl.put (f s)
+  run (Repl s) env = s.run env
+  runWithDefault (Repl s) = s.run ReplEnv.default
+
+instance Monad Repl where
+  return = Repl . return
+  (Repl state) >>= f = Repl $ state >>= (\a -> Repl.un $ f a)
+
+
+data ReplResult = ReplInfo [Message]
+                | CodeInfo {
+                    sourceRepr :: SourceInfo,
+                    compilerState :: Global,
+                    messages :: [Message]
+                  }
+                | JavaSource String
+                | DocHelp String
 
 repl :: ConsoleReader -> ReplEnv -> IO ()
 repl console env = do
   cmd <- read console env
-  let res = eval cmd env
-  print console cmd res
-  loop console cmd res env
+  let (res, newEnv) = Repl.run (eval cmd) env
+  print console cmd res newEnv
+  loop console cmd res newEnv
 
 read :: ConsoleReader -> ReplEnv -> IO Command
 read console state = do
    console.println ""
    line <- console.readLine state.prompt
    let readAgain = read console state
+       readResource path = do
+         res <- slurp path
+         either (\msg -> console.println (show msg) >> readAgain) return res
    case Command.parse line of
      Left err -> (console.println err) >> readAgain
      Right DefMulti -> readMultiline console >>= (return . Eval)
-     Right Reload -> maybe readAgain (readExternal console state) state.lastExternalScript
-     Right (Load path) -> readExternal console state path
+     Right Reload -> maybe
+       (console.println "No source to reload!" >> readAgain) readResource state.lastExternalScript
+     Right (Load path) -> readResource path
      Right cmd -> return cmd
 
-readExternal :: ConsoleReader -> ReplEnv -> String -> IO Command
-readExternal console state (urlSpec@#.*?://.*#) = do
-  url <- URL.new urlSpec
-  let fetch = urlContents url >>= (return . Right)
-      handleIOE (ioe :: IOException) = return $ Left ioe.getMessage
-  script <- fetch `catch` handleIOE
-  either (\err -> (console.println err) >> read console state)
-    (return . LoadExternal urlSpec) script
-readExternal console state filePath = do
-   script <- safeSlurp filePath
-   either (\err -> (console.println err) >> read console state)
-                   (return . LoadExternal filePath) script
-
-print :: ConsoleReader -> Command -> InterpreterResult -> IO ()
-print console Java
-  (InterpreterResult{typ=EvalSuccess, messages=(Message _ javaSrc:_)}) = javaSourceGUI javaSrc
-print console (HelpDoc src)
-  (InterpreterResult{typ=EvalSuccess, messages=(Message _ help:_)})    = helpGUI src help
-print console _ (InterpreterResult{typ=EvalError,messages=errs})       = printMessages console errs
-print console _ (InterpreterResult{typ=Def syms g, messages=msgs})     =
-  do
-    let symLabels = map (showSymbol g) $ filter (not . Symbol.{alias?}) syms
+print :: ConsoleReader -> Command -> ReplResult -> ReplEnv -> IO ()
+print _ Java (JavaSource src) _ = javaSourceGUI src
+print _ (HelpDoc src) (DocHelp doc) _ = helpGUI src doc
+print console _ (ReplInfo msgs) _ = printMessages console msgs
+print console (cmd@(Eval line)) (CodeInfo sourceRepr g msgs) env = case sourceRepr of
+  Expression sym | isVariable g sym =
+    if isString g sym
+      then do
+              valMaybe <- fieldValue (symbolClass sym g) (symbolVar sym) env.state.classLoader
+              console.println $ maybe "undefined" id valMaybe
+           `catch` (console.println . showThrowableCause)
+      else do
+        let evalShow = do
+                        let varDecl = variableDeclScript sym.name.base line
+                        when (line /= sym.name.base) $
+                          Repl.modify ReplEnv.{config <- InterpreterConfig.{predefs <- ((:) varDecl)}}
+                        eval (Eval $ buildShowScript sym.name.base g sym)
+        let (res, newEnv) = Repl.run evalShow env
+        case res of
+          CodeInfo{} -> print console cmd res newEnv
+          _ -> printSymbolType console g sym
+  Expression sym = printSymbolType console g sym
+  Definitions syms = do
+    let symLabels = map (showSymbol g) $ filter (not . Symbol.{alias?}) newSyms
+        newSyms = filter (\sym -> sym.pos.line > lineStart) syms
+        lineStart = case env.config.predefs of
+          [] -> 0
+          (_:xs) -> fold (\z \x -> z + length (lines x)) 1 xs
     when (not $ null symLabels) $ console.println $ intercalate newLine symLabels
+    printMessages console $ filter (\msg -> msg.pos.line > lineStart) msgs
+  Module moduleName = do
+    console.println $ "Module " ++ moduleName
     printMessages console msgs
-print console _ (InterpreterResult{typ=ModuleDef moduleName _,messages=msgs}) = do
-  console.println $ "Module: " ++ moduleName
-  printMessages console msgs
-print console _ (InterpreterResult{typ=EvalSuccess, messages=msgs})           = printMessages console msgs
-print console _
-  (InterpreterResult{typ=Interpret symbol g _, env=state})                    = do
-      let res = showableSymbol state g symbol
-          getValue (sym, g, newInterpEnv) = do
-            valMaybe <- fieldValue (symbolClass sym g) (symbolVar sym) newInterpEnv.loader
-            console.println $ maybe "undefined" id valMaybe
-      maybe (console.println $ getSymbolType g symbol) getValue res
-  `catch` (println . showThrowableCause)
-print _ _ _                                                    = return ()
+print console (LoadExternal path script) res env = print console (Eval script) res env
+print _ _ _ _ = return ()
 
-loop :: ConsoleReader -> Command -> InterpreterResult -> ReplEnv -> IO ()
+loop :: ConsoleReader -> Command -> ReplResult -> ReplEnv -> IO ()
 loop console Quit _ _ = return ()
 loop console Reset _ _ = repl console ReplEnv.default
-loop console (Eval _) (InterpreterResult res newInterpEnv _) state =
-  repl console (updateReplEnv res newInterpEnv state)
-loop console (LoadExternal src script) (InterpreterResult res newInterpEnv _) state =
-  repl console (updateReplEnv res newInterpEnv state.{lastExternalScript=Just src})
-loop console _ (InterpreterResult _ newState _) state = repl console state
+loop console _ _ env = repl console env
 
-eval :: Command -> ReplEnv -> InterpreterResult
-eval (Eval line) state = interpret line state.interpreterEnv
-eval (Type expr) state = typeof expr state.interpreterEnv
-eval (LoadExternal src script) state = interpret script state.interpreterEnv
-eval (BrowseModule moduleName) state = browseModule moduleName state.interpreterEnv
-eval Browse state = browse state.interpreterEnv
-eval (HelpDoc name) state = docHelp name state.interpreterEnv
-eval Java state = javaSource state
-eval History state = history state.interpreterEnv
-eval Reset _ = InterpreterResult EvalSuccess InterpreterEnv.default []
-eval Version state = InterpreterResult EvalSuccess state.interpreterEnv [Message INFO version]
-eval Help state = InterpreterResult EvalSuccess state.interpreterEnv [Message INFO help]
-eval _ state = InterpreterResult EvalSuccess state.interpreterEnv []
+eval :: Command -> Repl ReplResult
+eval (Eval line) = do
+  env <- Repl.get
+  let (res, newState) = Interpreter.run (interpret line) env.config env.state
+  case res of
+    InterpreterResult.Success{sourceRepr=sourceRepr, compilerState=g} -> do
+      case sourceRepr of
+        Module{} -> do
+          Repl.modify ReplEnv.{lastJavaGenSrc=Just line, state = newState}
+        Definitions{} -> do
+          Repl.modify ReplEnv.{lastJavaGenSrc=Nothing, config <- InterpreterConfig.{predefs<-(line:)}}
+        Expression{} -> do
+          Repl.modify ReplEnv.{lastJavaGenSrc=Just line, state = newState}
+      return $ CodeInfo sourceRepr g (Message.fromGlobal g)
+    InterpreterResult.Failure messages -> return $ ReplInfo messages
 
-javaSource :: ReplEnv -> InterpreterResult
-javaSource state = maybe genJavaSource cachedJavaSource state.lastJavaSource where
-  cachedJavaSource m = InterpreterResult EvalSuccess state.interpreterEnv [Message INFO m]
-  genJavaSource = either fail success $ javasrc currDefs state.interpreterEnv.{predefs=[]} where
-    fail msgs = InterpreterResult EvalError state.interpreterEnv msgs
-    success jsrc = InterpreterResult EvalSuccess state.interpreterEnv [Message INFO jsrc]
-  currDefs = concat . intersperse newLine $ reverse state.interpreterEnv.predefs
+eval (Type expr) = do
+  env <- Repl.get
+  let res = fst $ Interpreter.run (typeof expr) env.config env.state
+  return $ either ReplInfo (\typ -> ReplInfo [Message.info typ]) res
 
-updateReplEnv :: InterpreterResultType -> InterpreterEnv -> ReplEnv -> ReplEnv
-updateReplEnv (ModuleDef _ javaSource) newInterpEnv state =
-  -- Update Class Loader with the module class file and the generated Java source
-  state.{lastJavaSource=Just javaSource, interpreterEnv<-InterpreterEnv.{loader=newInterpEnv.loader}}
+eval (LoadExternal src script) = do
+  res <- eval (Eval script)
+  case res of
+    CodeInfo{} -> Repl.modify ReplEnv.{lastExternalScript=Just src} >> return res
+    _ -> return res
 
--- Update with generated java source
-updateReplEnv (Interpret _ _ javaSource) newInterpEnv state = state.{lastJavaSource=Just javaSource}
+eval (BrowseModule moduleName) = do
+  env <- Repl.get
+  let res = fst $ Interpreter.run (browseModule moduleName) env.config env.state
+  return $ maybe (ReplInfo []) (\(syms, g) -> symbolsToReplInfo syms g) res
 
--- Update with the new definitions
-updateReplEnv (Def _ _) newInterpEnv state =
-  state.{lastJavaSource=Nothing, interpreterEnv<-InterpreterEnv.{predefs=newInterpEnv.predefs}}
+eval Browse = do
+  env <- Repl.get
+  let src = unlines $ reverse env.config.predefs
+      res = fst $ Interpreter.run (browse src) env.config.{predefs=[]} env.state
+  return $ maybe (ReplInfo []) (\(syms, g) -> symbolsToReplInfo syms g) res
 
--- In all other cases, do not modify state
-updateReplEnv _ _ state = state
+eval (HelpDoc name) = do
+  env <- Repl.get
+  let res = fst $ Interpreter.run (docHelp name) env.config env.state
+  return $ either ReplInfo DocHelp res
 
-history :: InterpreterEnv -> InterpreterResult
-history state = InterpreterResult EvalSuccess state [Message INFO . unlines . reverse $ state.predefs]
+eval Java = do
+  env <- Repl.get
+  let javagenDefs [] = return (ReplInfo [Message.info "Empty source!"])
+      javagenDefs defs = do
+        oldEnv <- Repl.get
+        Repl.modify ReplEnv.{config <- InterpreterConfig.{predefs=[]}}
+        res <- java (unlines $ reverse defs)
+        Repl.put oldEnv
+        return res
+  maybe (javagenDefs env.config.predefs) (\src -> java src) env.lastJavaGenSrc
+
+
+eval History = do
+  env <- Repl.get
+  return $ ReplInfo . map Message.info . reverse $ env.config.predefs
+
+eval Reset = Repl.put ReplEnv.default >> return (ReplInfo [])
+eval Version = return $ ReplInfo [Message.info version]
+eval Help = return $ ReplInfo [Message.info (help cmdHelp)]
+eval _ = return $ ReplInfo []
+
+symbolsToReplInfo syms g = ReplInfo $ map (Message.info . showSymbol g) wantedSyms where
+  wantedSyms = filter wanted syms
+  wanted (sym :: Symbol)
+    | sym.{alias?} = false
+    | otherwise = true
+
+java src = do
+    env <- Repl.get
+    let res = fst $ Interpreter.run (javaSource src) env.config env.state
+    return $ either ReplInfo JavaSource res
+
+slurp :: String -> IO (Message | Command)
+slurp (urlSpec@#.*?://.*#) = do
+      url <- URL.new urlSpec
+      script <- urlContents url
+      return . Right $ LoadExternal urlSpec script
+  `catch` handleIOE where
+    handleIOE (ioe :: IOException) = return $ Left (Message.error (showThrowableCause ioe))
+slurp filePath = do
+   script <- fileContents filePath
+   return . Right . LoadExternal filePath $ script
+ `catch` handleIOE where
+    handleIOE (ioe :: IOException) = return $ Left (Message.error (showThrowableCause ioe))
 
 printMessages :: ConsoleReader -> [Message] -> IO ()
 printMessages console [] = return ()
 printMessages console msgs = console.println $ Message.showMessages msgs
+
+printSymbolType (console :: ConsoleReader) g sym = do
+                        console.print (CharSequence.fromString ":: ")
+                        console.println (getSymbolType g sym)
 
 readMultiline :: ConsoleReader -> IO String
 readMultiline console = intercalate newLine . reverse <$> f [] where
@@ -145,12 +223,12 @@ readMultiline console = intercalate newLine . reverse <$> f [] where
       else f (line : acc)
 
 
-cmdHelp = [(":type <expression>", "Display the type of an expression."),
+cmdHelp = [(":t or :type <expression>", "Display the type of an expression."),
             (":browse <module name>", "Display the names in a module if " ++
                 "a module name is provided otherwise display the names in the default REPL module."),
             (":load <url or file>", "Load Frege code snippets from an URL or file."),
             (":java", "View Java translation of last compiled Frege source."),
-            (":r", "Reload the last script file."),
+            (":r", "Reload the last url or file source."),
             (":history", "Display the source history for definitions in the default REPL module."),
             (":reset", "Reset the session discarding all evaluated scripts."),
             (":version", "Display Frege version."),
@@ -160,52 +238,40 @@ cmdHelp = [(":type <expression>", "Display the type of an expression."),
                             " If the name is not provided, display this help message."),
             (":q or :quit", "Quit REPL")]
 
-f `on` g = \x \y -> f (g x) (g y)
-
 renderCmdHelp cmdHelp = map render cmdHelp where
     maxLeftIndent = length . fst $ maximumBy (compare `on` (length . fst)) cmdHelp
     indent cmd desc width = cmd ++ (concat $ replicate (width - cmd.length) " ") ++
         " - " ++ desc
     render (cmd, desc) = indent cmd desc maxLeftIndent
 
-help = intercalate newLine $ header ++ body where
+help cmdHelp = intercalate newLine $ header ++ body where
     header = ["At the prompt, you can enter Frege code snippets to get them evaluated.",
             "The output or compilation errors will be printed below the prompt.",
             "In addition to Frege code, the following commands are supported:\n"]
     body = renderCmdHelp cmdHelp
-
-
-safeSlurp :: String -> IO (String | String)
-safeSlurp file = fetch file `catch` handleIOE where
-        fetch file = fileContents file >>= (return . Right)
-        handleIOE :: IOException -> IO (Either String String)
-        handleIOE ioe = return $ Left ioe.getMessage
 
 data ConsoleReader = mutable native jline.console.ConsoleReader where
   native new :: () -> IO ConsoleReader throws IOException
   native readLine :: ConsoleReader -> String -> IO String throws IOException
   native readLine' readLine :: ConsoleReader -> IO String throws IOException
   native println :: ConsoleReader -> String -> IO () throws IOException
+  native print :: ConsoleReader -> CharSequence -> IO () throws IOException
   native setPrompt :: ConsoleReader -> String -> IO ()
   native setExpandEvents :: ConsoleReader -> Bool -> IO ()
 
 urlContents url = do
     inStream <- URL.openStream url
-    scanner <- Scanner.new inStream
-    scanner.useDelimiter "\\Z"
+    scanner <- scannerFromInputStream inStream
+    scanner.useDelimiter #\Z#
     scanner.next `finally` scanner.close
 
 fileContents filePath = do
     file <- File.new filePath
-    scanner <- Scanner.fromFile file "utf-8"
-    scanner.useDelimiter "\\Z"
+    scanner <- Scanner.new file "utf-8"
+    scanner.useDelimiter #\Z#
     scanner.next `finally` scanner.close
 
-data Scanner = mutable native java.util.Scanner where
-    native new :: InputStream -> IO Scanner
-    native fromFile new :: MutableIO File -> String -> IO Scanner throws FileNotFoundException
-    native useDelimiter :: Scanner -> String -> IO ()
-    native next :: Scanner -> IO String
+native scannerFromInputStream new :: InputStream -> IOMutable Scanner
 
 javaSourceGUI :: String -> IO ()
 javaSourceGUI javaSource = do

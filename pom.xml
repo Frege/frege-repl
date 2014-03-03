@@ -88,6 +88,7 @@
           <archive>
             <manifest>
               <addClasspath>true</addClasspath>
+              <classpathPrefix>lib/</classpathPrefix>
               <mainClass>frege.repl.FregeRepl</mainClass>
             </manifest>
           </archive>
