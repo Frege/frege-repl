@@ -311,9 +311,9 @@ helpGUI title content = do
 
 data FregeJavaProxy = pure native frege.interpreter.javasupport.FregeJavaProxy where
   native with frege.interpreter.javasupport.FregeJavaProxy.with ::
-    (Object -> Method -> ObjectArr -> ST s a) -> Class c -> IO c
+    (Object -> Method -> ObjectArray -> ST s a) -> Class c -> IO c
 
-showDesktop :: Object -> Method -> ObjectArr -> IO ()
+showDesktop :: Object -> Method -> ObjectArray -> IO ()
 showDesktop _ _ args = do
   event <- return $ asHyperlinkEvent $ args.elemAt 0
   d <- Desktop.getDesktop ()
@@ -323,6 +323,9 @@ showDesktop _ _ args = do
       navigate = maybe navigateRelative (\u -> toURI u >>= d.browse) url
   when (event.getEventType == HyperlinkEvent_EventType.activated) navigate
 
+
+derive ArrayElement Object
+type ObjectArray = JArray Object
 
 fixHelpLink s | Just (Just relative : _)
                   <- s `match` #^\.\.(.*)$# = "http://try.frege-lang.org/doc/frege" ++ relative
