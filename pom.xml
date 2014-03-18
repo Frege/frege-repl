@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>frege</groupId>
   <artifactId>frege-repl</artifactId>
-  <version>1.0.2</version>
+  <version>1.0.3-SNAPSHOT</version>
   <packaging>jar</packaging>
   <name>frege-repl</name>
   <url>https://github.com/Frege/frege-repl</url>
@@ -11,7 +11,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.build.sourceDirectory>src/main/frege</project.build.sourceDirectory>
     <frege.plugin.version>1.0.5</frege.plugin.version>
-    <frege.interpreter.version>1.0.2</frege.interpreter.version>
+    <frege.interpreter.version>1.0.3-SNAPSHOT</frege.interpreter.version>
     <jline.version>2.10</jline.version>
     <ecj.version>4.2.2</ecj.version>
     <junit.version>4.11</junit.version>
