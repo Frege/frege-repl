@@ -61,5 +61,19 @@ In addition to Frege code, the following commands are supported:
 ##How to run?##
 1. Download Frege REPL archive from [releases](https://github.com/Frege/frege-repl/releases).
 2. Extract the archive
-3. Run the following command: (JRE 7 required) <BR/>
+3. Run the following command: (JRE 7 or above required) <BR/>
    `java -jar frege-repl-<version>.jar` where `<version>` is the version number on the jar.
+
+##Build from sources##
+
+1. Frege is not available on Maven central yet so we need to manually [download](https://github.com/Frege/frege/releases) and install it in local maven repository. For example, if the downloaded Frege jar is *frege3.21.586-g026e8d7.jar* then we can install it using,
+   `mvn install:install-file -DgroupId=frege -DartifactId=frege -Dversion=3.21.586-g026e8d7 -Dfile=/path/to/frege/frege3.21.586-g026e8d7.jar -Dpackaging=jar`
+
+2. Checkout this project and then from project root,
+
+   `mvn install`
+   
+3. To run
+
+   `mvn exec:exec`
+   
