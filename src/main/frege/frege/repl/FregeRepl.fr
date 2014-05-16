@@ -79,7 +79,7 @@ read console state = do
 
 print :: ConsoleReader -> Command -> ReplResult -> ReplEnv -> IO ()
 print _ Java (JavaSource src) _ = javaSourceGUI src
-print _ (HelpDoc src) (DocHelp doc) _ = helpGUI src doc
+print _ (HelpDoc src) (DocHelp doc) _ = if null doc then return () else helpGUI src doc
 print console _ (ReplInfo msgs) _ = printMessages console msgs
 print console (cmd@(Eval line)) (CodeInfo sourceRepr g msgs) env = case sourceRepr of
   Expression sym | isVariable g sym =
@@ -295,7 +295,11 @@ helpGUI title content = do
     frame.setDefaultCloseOperation JFrame.dispose_on_close
     newContentPane:: JPanel <- BorderLayout.new () >>= JPanel.new
     let html :: String
-        html = substring content $ indexOf content "<HTML>" -- Skip DOCTYPE
+        html
+            | index >= 0 = substring content index  -- Skip DOCTYPE
+            | otherwise = content
+          where
+            index = indexOf content "<HTML>"
     editor::JEditorPane <- JEditorPane.new "text/html" html
     editor.setEditable false
     helpLinksListener <- FregeJavaProxy.with showDesktop HyperlinkListener.clazz
@@ -328,7 +332,7 @@ derive ArrayElement Object
 type ObjectArray = JArray Object
 
 fixHelpLink s | Just (Just relative : _)
-                  <- s `match` #^\.\.(.*)$# = "http://try.frege-lang.org/doc/frege" ++ relative
+                  <- s `match` #^\.\.(.*)$# = "http://www.frege-lang.org/doc/frege" ++ relative
 fixHelpLink s = s
 
 native toURI :: URL -> ST s URI throws URISyntaxException
