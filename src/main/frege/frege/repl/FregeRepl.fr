@@ -5,9 +5,7 @@ import Java.Net
 import Data.List
 import Interpreter.FregeInterpreter
 import Compiler.Data (Symbol, Global, StG, Definition)
-import Compiler.BaseTypes (Position)
-import Compiler.Utilities as U()
-import Compiler.EclipseUtil as EU()
+import Compiler.types.Positions
 import Java.Swing (JFrame, invokeLater)
 import Java.Awt (Component, ActionListener)
 import Java.Util (Scanner)
@@ -64,12 +62,14 @@ repl console env = do
 read :: ConsoleReader -> ReplEnv -> IO Command
 read console state = do
    console.println ""
-   line <- console.readLine state.prompt
-   let readAgain = read console state
-       readResource path = do
-         res <- slurp path
-         either (\msg -> console.println (show msg) >> readAgain) return res
-   case Command.parse line of
+   lineMaybe <- console.readLine state.prompt
+   maybe (return Quit) readMore lineMaybe
+ where
+   readAgain = read console state
+   readResource path = do
+     res <- slurp path
+     either (\msg -> console.println (show msg) >> readAgain) return res
+   readMore line = case Command.parse line of
      Left err -> (console.println err) >> readAgain
      Right DefMulti -> readMultiline console >>= (return . Eval)
      Right Reload -> maybe
@@ -85,7 +85,7 @@ print console (cmd@(Eval line)) (CodeInfo sourceRepr g msgs) env = case sourceRe
   Expression sym | isVariable g sym =
     if isString g sym
       then do
-              valMaybe <- fieldValue (symbolClass sym g) (symbolVar sym) env.state.classLoader
+              valMaybe <- fieldValue (symbolClass sym g) (symbolVar sym g) env.state.classLoader
               console.println $ maybe "undefined" id valMaybe
            `catch` (console.println . showThrowableCause)
       else do
@@ -217,7 +217,8 @@ printSymbolType (console :: ConsoleReader) g sym = do
 readMultiline :: ConsoleReader -> IO String
 readMultiline console = intercalate newLine . reverse <$> f [] where
   f acc = do
-    line <- console.readLine ""
+    lineMaybe <- console.readLine ""
+    let line = maybe ":}" id lineMaybe
     if (line == ":}")
       then console.println "" >> return acc
       else f (line : acc)
@@ -252,8 +253,8 @@ help cmdHelp = intercalate newLine $ header ++ body where
 
 data ConsoleReader = mutable native jline.console.ConsoleReader where
   native new :: () -> IO ConsoleReader throws IOException
-  native readLine :: ConsoleReader -> String -> IO String throws IOException
-  native readLine' readLine :: ConsoleReader -> IO String throws IOException
+  native readLine :: ConsoleReader -> String -> IO (Maybe String) throws IOException
+                   | ConsoleReader -> IO (Maybe String) throws IOException
   native println :: ConsoleReader -> String -> IO () throws IOException
   native print :: ConsoleReader -> CharSequence -> IO () throws IOException
   native setPrompt :: ConsoleReader -> String -> IO ()
