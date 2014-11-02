@@ -333,7 +333,7 @@ derive ArrayElement Object
 type ObjectArray = JArray Object
 
 fixHelpLink s | Just (Just relative : _)
-                  <- s `match` #^\.\.(.*)$# = "http://www.frege-lang.org/doc/frege" ++ relative
+                  <- s `match` #^\.(.*)$# = "http://www.frege-lang.org/doc" ++ relative
 fixHelpLink s = s
 
 native toURI :: URL -> ST s URI throws URISyntaxException
