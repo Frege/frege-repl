@@ -253,12 +253,22 @@ help cmdHelp = intercalate newLine $ header ++ body where
 
 data ConsoleReader = mutable native jline.console.ConsoleReader where
   native new :: () -> IO ConsoleReader throws IOException
+              | String
+                -> InputStream
+                -> OutputStream
+                -> Maybe Terminal
+                -> String
+                -> IO ConsoleReader
+                throws IOException
+
   native readLine :: ConsoleReader -> String -> IO (Maybe String) throws IOException
                    | ConsoleReader -> IO (Maybe String) throws IOException
   native println :: ConsoleReader -> String -> IO () throws IOException
   native print :: ConsoleReader -> CharSequence -> IO () throws IOException
   native setPrompt :: ConsoleReader -> String -> IO ()
   native setExpandEvents :: ConsoleReader -> Bool -> IO ()
+
+data Terminal = mutable native jline.Terminal
 
 urlContents url = do
     inStream <- URL.openStream url
@@ -381,12 +391,13 @@ javaVersion = maybe "" id $ System.getProperty "java.version"
 
 pure native toString :: Object -> String
 pure native trim :: String -> String
+native sysin "java.lang.System.in" :: InputStream
 
 welcome = "Welcome to Frege " ++ version ++ " (" ++ vmVendor ++ " " ++ vmName ++
     ", " ++ javaVersion ++ ")"
 
 main _ = do
-  console <- ConsoleReader.new ()
+  console <- ConsoleReader.new "frege" sysin System.out Nothing "UTF-8"
   console.setPrompt ReplEnv.default.prompt
   console.setExpandEvents false
   console.println welcome
