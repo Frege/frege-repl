@@ -66,11 +66,9 @@ In addition to Frege code, the following commands are supported:
 
 ##Build from sources##
 
-1. Checkout this project and then from project root,
-
-   `mvn install`
-   
-2. To run
-
-   `mvn exec:exec`
+1. ```~/workspace$ git clone https://github.com/Frege/frege-interpreter.git```
+2. ```~/workspace/frege-interpreter$ mvn install```
+3. ```~/workspace$ git clone https://github.com/Frege/frege-repl.git```
+4. ```~/workspace/frege-repl$ mvn install```
+5. To run, ```~/workspace/frege-repl$ mvn exec:exec```
    
