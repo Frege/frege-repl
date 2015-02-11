@@ -1,7 +1,7 @@
 module frege.repl.Gui where
 
 import Java.Net (URI, URL)
-import Java.Awt (Component)
+import Java.Awt (Component, ActionEvent)
 
 pure native asHyperlinkListener "(javax.swing.event.HyperlinkListener)" :: Object -> HyperlinkListener
 pure native asHyperlinkEvent "(javax.swing.event.HyperlinkEvent)" :: Object -> HyperlinkEvent
@@ -66,6 +66,32 @@ data JScrollPane = mutable native javax.swing.JScrollPane where
 
 data JComponent = mutable native javax.swing.JComponent where
   native setPreferredSize :: JComponent -> Dimension -> IO ()
+  pure native when_focused javax.swing.JComponent.WHEN_FOCUSED :: Int
+  native getInputMap :: JComponent -> IO InputMap
+  native getActionMap :: JComponent -> IO ActionMap
+
+data JOptionPane = mutable native javax.swing.JOptionPane where
+   native showInputDialog javax.swing.JOptionPane.showInputDialog :: Object -> IO String
+   pure native plain_message javax.swing.JOptionPane.PLAIN_MESSAGE :: Int
+   native showMessageDialog javax.swing.JOptionPane.showMessageDialog
+     :: Maybe Component -> Object -> IO ()
+      | Maybe Component -> Object -> String -> Int -> IO ()
+
+data Window = mutable native java.awt.Window where
+  native pack :: Window -> IO ()
+  native addWindowListener :: Window -> WindowListener -> IO ()
+  native setLocation :: Window -> Int -> Int -> IO ()
+
+data WindowListener = mutable native java.awt.event.WindowListener where
+  native listener frege.repl.NativeWrapper.windowListener :: (WindowEvent -> IO ()) -> IO WindowListener
+
+data GridLayout = mutable native java.awt.GridLayout where
+  native new :: Int -> Int -> IO GridLayout
+              | Int -> Int -> Int -> Int -> IO GridLayout
+
+data JTextComponent = mutable native javax.swing.text.JTextComponent where
+  native getDocument :: JTextComponent -> IO Document
+  native setCaretPosition :: JTextComponent -> Int -> IO ()
 
 data Dimension = mutable native java.awt.Dimension where
   native new :: Int -> Int -> IO Dimension
@@ -84,5 +110,31 @@ data JEditorPane = mutable native javax.swing.JEditorPane where
   native new :: String -> String -> IO JEditorPane
   native addHyperlinkListener :: JEditorPane -> HyperlinkListener -> IO ()
   native setEditable :: JEditorPane -> Bool -> IO ()
+
+data Document = mutable native javax.swing.text.Document where
+  native insertString :: Document -> Int -> String -> Maybe AttributeSet -> IO () throws BadLocationException
+  native getLength :: Document -> IO Int
+
+data BadLocationException = pure native javax.swing.text.BadLocationException
+derive Exceptional BadLocationException
+
+data AttributeSet = pure native javax.swing.text.AttributeSet
+
+data InputMap = mutable native javax.swing.InputMap where
+  native get :: InputMap -> KeyStroke -> IO Object
+  native put :: InputMap -> KeyStroke -> Object -> IO ()
+
+data ActionMap = mutable native javax.swing.ActionMap where
+  native put :: ActionMap -> Object -> Action -> IO ()
+
+data Action = mutable native javax.swing.Action
+
+data AbstractAction = mutable native javax.swing.AbstractAction where
+  native action frege.repl.NativeWrapper.swingAction :: (ActionEvent -> IO ()) -> IO Action
+
+data WindowEvent = mutable native java.awt.event.WindowEvent
+
+data KeyStroke = pure native javax.swing.KeyStroke where
+  pure native getKeyStroke javax.swing.KeyStroke.getKeyStroke :: String -> KeyStroke
 
 private pure native asObject "(java.lang.Object)" :: a -> Object

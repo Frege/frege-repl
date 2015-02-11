@@ -1,0 +1,16 @@
+module frege.repl.PreludeRepl where
+
+import frege.Prelude hiding (getLine, getChar, getContents)
+import Java.IO(stdin)
+
+{-
+Copied from frege/Prelude.fr so that stdin can be thread-local and reset for each run
+-}
+--- read a character from the standard input reader
+getChar = IO.stdin.getChar
+
+--- read a line from the standard input reader, end of line charcters are removed.
+getLine = IO.stdin.getLine
+
+--- The 'getContents' operation returns all user input as a single string
+getContents = getContentsOf IO.stdin

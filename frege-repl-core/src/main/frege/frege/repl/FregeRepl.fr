@@ -4,15 +4,22 @@ import frege.Version
 import Java.Net
 import Data.List
 import Interpreter.FregeInterpreter
-import Compiler.Data (Symbol, Global, StG, Definition)
+import Compiler.types.Global hiding (Message, Severity)
+import Compiler.types.Global (Message CompilerMessage, Severity())
 import Compiler.types.Positions
-import Java.Swing (JFrame, invokeLater)
+import Compiler.types.SourceDefinitions
+import Compiler.enums.TokenID
+import Compiler.types.SNames
+import Compiler.types.ImportDetails
+import Compiler.types.Tokens
+import Java.Swing
 import Java.Awt (Component, ActionListener)
-import Java.Util (Scanner)
+import Java.Util (Scanner, ArrayList, Collection)
 import Repl.Gui
 import frege.Prelude hiding (print)
 import frege.Prelude (print pPrint)
 import Control.monad.State public(State)
+import Control.Concurrent as C
 
 data ReplEnv = ReplEnv {
   lastJavaGenSrc :: Maybe String,
@@ -52,42 +59,39 @@ data ReplResult = ReplInfo [Message]
                 | JavaSource String
                 | DocHelp String
 
-repl :: ConsoleReader -> ReplEnv -> IO ()
+repl :: ReplIO a => a -> ReplEnv -> IO ()
 repl console env = do
   cmd <- read console env
   let (res, newEnv) = Repl.run (eval cmd) env
   print console cmd res newEnv
   loop console cmd res newEnv
 
-read :: ConsoleReader -> ReplEnv -> IO Command
+read :: ReplIO a => a -> ReplEnv -> IO Command
 read console state = do
-   console.println ""
-   lineMaybe <- console.readLine state.prompt
+   console.writeln ""
+   lineMaybe <- console.readline
    maybe (return Quit) readMore lineMaybe
  where
    readAgain = read console state
    readResource path = do
      res <- slurp path
-     either (\msg -> console.println (show msg) >> readAgain) return res
+     either (\msg -> console.writeln (show msg) >> readAgain) return res
    readMore line = case Command.parse line of
-     Left err -> (console.println err) >> readAgain
+     Left err -> (console.writeln err) >> readAgain
      Right DefMulti -> readMultiline console >>= (return . Eval)
      Right Reload -> maybe
-       (console.println "No source to reload!" >> readAgain) readResource state.lastExternalScript
+       (console.writeln "No source to reload!" >> readAgain) readResource state.lastExternalScript
      Right (Load path) -> readResource path
      Right cmd -> return cmd
 
-print :: ConsoleReader -> Command -> ReplResult -> ReplEnv -> IO ()
+print :: ReplIO a => a -> Command -> ReplResult -> ReplEnv -> IO ()
 print _ Java (JavaSource src) _ = javaSourceGUI src
 print _ (HelpDoc src) (DocHelp doc) _ = if null doc then return () else helpGUI src doc
 print console _ (ReplInfo msgs) _ = printMessages console msgs
 print console (cmd@(Eval line)) (CodeInfo sourceRepr g msgs) env = case sourceRepr of
   Expression sym | isVariable g sym =
     if isString g sym
-      then do
-              valMaybe <- fieldValue (symbolClass sym g) (symbolVar sym g) env.state.classLoader
-              console.println $ maybe "undefined" id valMaybe
-           `catch` (console.println . showThrowableCause)
+      then console.interpretSym g sym env
       else do
         let evalShow = do
                         let varDecl = variableDeclScript sym.name.base line
@@ -105,15 +109,15 @@ print console (cmd@(Eval line)) (CodeInfo sourceRepr g msgs) env = case sourceRe
         lineStart = case env.config.predefs of
           [] -> 0
           (_:xs) -> fold (\z \x -> z + length (lines x)) 1 xs
-    when (not $ null symLabels) $ console.println $ intercalate newLine symLabels
+    when (not $ null symLabels) $ console.writeln $ intercalate newLine symLabels
     printMessages console $ filter (\msg -> msg.pos.line > lineStart) msgs
   Module moduleName = do
-    console.println $ "Module " ++ moduleName
+    console.writeln $ "Module " ++ moduleName
     printMessages console msgs
 print console (LoadExternal path script) res env = print console (Eval script) res env
 print _ _ _ _ = return ()
 
-loop :: ConsoleReader -> Command -> ReplResult -> ReplEnv -> IO ()
+loop :: ReplIO a => a -> Command -> ReplResult -> ReplEnv -> IO ()
 loop console Quit _ _ = return ()
 loop console Reset _ _ = repl console ReplEnv.default
 loop console _ _ env = repl console env
@@ -194,7 +198,7 @@ java src = do
     return $ either ReplInfo JavaSource res
 
 slurp :: String -> IO (Message | Command)
-slurp (urlSpec@#.*?://.*#) = do
+slurp (urlSpec@'.*?://.*') = do
       url <- URL.new urlSpec
       script <- urlContents url
       return . Right $ LoadExternal urlSpec script
@@ -206,21 +210,22 @@ slurp filePath = do
  `catch` handleIOE where
     handleIOE (ioe :: IOException) = return $ Left (Message.error (showThrowableCause ioe))
 
-printMessages :: ConsoleReader -> [Message] -> IO ()
+printMessages :: ReplIO a => a -> [Message] -> IO ()
 printMessages console [] = return ()
-printMessages console msgs = console.println $ Message.showMessages msgs
+printMessages console msgs = console.writeln $ Message.showMessages msgs
 
-printSymbolType (console :: ConsoleReader) g sym = do
-                        console.print (CharSequence.fromString ":: ")
-                        console.println (getSymbolType g sym)
+printSymbolType :: ReplIO a => a -> Global -> Symbol -> IO ()
+printSymbolType console g sym = do
+                        console.write ":: "
+                        console.writeln (getSymbolType g sym)
 
-readMultiline :: ConsoleReader -> IO String
+readMultiline :: ReplIO a => a -> IO String
 readMultiline console = intercalate newLine . reverse <$> f [] where
   f acc = do
-    lineMaybe <- console.readLine ""
+    lineMaybe <- console.readline
     let line = maybe ":}" id lineMaybe
     if (line == ":}")
-      then console.println "" >> return acc
+      then console.writeln "" >> return acc
       else f (line : acc)
 
 
@@ -273,13 +278,13 @@ data Terminal = mutable native jline.Terminal
 urlContents url = do
     inStream <- URL.openStream url
     scanner <- scannerFromInputStream inStream
-    scanner.useDelimiter #\Z#
+    scanner.useDelimiter '\Z'
     scanner.next `finally` scanner.close
 
 fileContents filePath = do
     file <- File.new filePath
     scanner <- Scanner.new file "utf-8"
-    scanner.useDelimiter #\Z#
+    scanner.useDelimiter '\Z'
     scanner.next `finally` scanner.close
 
 native scannerFromInputStream new :: InputStream -> IOMutable Scanner
@@ -326,9 +331,9 @@ helpGUI title content = do
 
 data FregeJavaProxy = pure native frege.interpreter.javasupport.FregeJavaProxy where
   native with frege.interpreter.javasupport.FregeJavaProxy.with ::
-    (Object -> Method -> ObjectArray -> ST s a) -> Class c -> IO c
+    (Object -> Method -> JArray Object -> ST s a) -> Class c -> IO c
 
-showDesktop :: Object -> Method -> ObjectArray -> IO ()
+showDesktop :: Object -> Method -> JArray Object -> IO ()
 showDesktop _ _ args = do
   event <- return $ asHyperlinkEvent $ args.elemAt 0
   d <- Desktop.getDesktop ()
@@ -338,12 +343,8 @@ showDesktop _ _ args = do
       navigate = maybe navigateRelative (\u -> toURI u >>= d.browse) url
   when (event.getEventType == HyperlinkEvent_EventType.activated) navigate
 
-
-derive ArrayElement Object
-type ObjectArray = JArray Object
-
 fixHelpLink s | Just (Just relative : _)
-                  <- s `match` #^\.(.*)$# = "http://www.frege-lang.org/doc" ++ relative
+                  <- s `match` '^\.(.*)$' = "http://www.frege-lang.org/doc" ++ relative
 fixHelpLink s = s
 
 native toURI :: URL -> ST s URI throws URISyntaxException
@@ -363,13 +364,13 @@ data Command = Version | Help | HelpDoc String | Browse |
     parse   :: String -> Either String Command
     parse s = parse' $ trim s where
         parse' "" = Right Skip
-        parse' #^:# = parseCommand s
+        parse' '^:' = parseCommand s
         parse' script = Right $ Eval script
 
-    parseCommand s | Just (Just moduleName : _) <- s `match` #:browse\s+(.*)# = Right $ BrowseModule moduleName
-    parseCommand s | Just (Just path : _) <- s `match` #^:l.*?\s+(.*)# = Right $ Load path
-    parseCommand s | Just (Just src : _) <- s `match` #:help\s+(.*)# = Right $ HelpDoc src
-    parseCommand s | Just (Just expr : _) <- s `match` #^:t.*?\s+(.*)# = Right $ Type expr
+    parseCommand s | Just (Just moduleName : _) <- s `match` ':browse\s+(.*)' = Right $ BrowseModule moduleName
+    parseCommand s | Just (Just path : _) <- s `match` '^:l.*?\s+(.*)' = Right $ Load path
+    parseCommand s | Just (Just src : _) <- s `match` ':help\s+(.*)' = Right $ HelpDoc src
+    parseCommand s | Just (Just expr : _) <- s `match` '^:t.*?\s+(.*)' = Right $ Type expr
     parseCommand  ":version" = Right Version
     parseCommand ":browse" = Right $ Browse
     parseCommand ":{" = Right DefMulti
@@ -396,10 +397,212 @@ native sysin "java.lang.System.in" :: InputStream
 welcome = "Welcome to Frege " ++ version ++ " (" ++ vmVendor ++ " " ++ vmName ++
     ", " ++ javaVersion ++ ")"
 
-main _ = do
+class ReplIO a where
+  readline :: a -> IO (Maybe String)
+  write :: a -> String -> IO ()
+  writeln :: a -> String -> IO ()
+  interpretSym :: a -> Global -> Symbol -> ReplEnv -> IO ()
+
+instance ReplIO ConsoleReader where
+  readline console = try ConsoleReader.readLine console `catch` (\(ioe :: IOException) -> return Nothing)
+  write console s = try (flip ConsoleReader.print (CharSequence.fromString s)) console
+                      `catch` (\(ioe :: IOException) -> return ())
+  writeln console s = try (flip ConsoleReader.println s) console
+                        `catch` (\(ioe :: IOException) -> return ())
+  interpretSym console g sym env =
+    do
+      valMaybe <- fieldValue (symbolClass sym g) (symbolVar sym g) env.state.classLoader
+      console.writeln $ maybe "undefined" id valMaybe
+    `catch` (console.writeln . showThrowableCause)
+
+
+data ReaderWriterConsole = ReaderWriterConsole {input :: BufferedReader, output :: PrintWriter}
+
+instance ReplIO ReaderWriterConsole where
+  readline console = try f console `catch` (\(ioe :: IOException) -> return Nothing) where
+    f console = do
+     console.write "frege> "
+     console.output.flush
+     line <- console.input.getLine
+     return $ Just line
+  write console s = try (\c -> c.output.print s) console
+                      `catch` (\(ioe :: IOException) -> return ())
+  writeln console s = try (\c -> c.output.println s) console
+                      `catch` (\(ioe :: IOException) -> return ())
+  interpretSym console g sym env =
+    do
+      valMaybe <- fieldValue (symbolClass sym g) (symbolVar sym g) env.state.classLoader
+      console.writeln $ maybe "undefined" id valMaybe
+    `catch` (console.writeln . showThrowableCause)
+
+graphicRepl :: IO (MVar String, JEditorPane, JTextArea, JFrame)
+graphicRepl = do
+    inputField   <- JTextArea.new "" 5 30
+    stdinField   <- JTextArea.new "" 25 30
+    celsiusLabel    <- JLabel.new ()
+    convertButton   <- JButton.new ()
+    (frame :: JFrame)           <- JFrame.new ()
+    Window.setLocation frame 100 100
+    editor::JEditorPane <- JEditorPane.new "text/plain" ""
+    editor.setEditable false
+    scrollPane <- JScrollPane.new editor
+    dimension <- Dimension.new 800 800
+    JComponent.setPreferredSize scrollPane dimension
+    frame.setDefaultCloseOperation JFrame.dispose_on_close
+    frame.setTitle "Frege REPL"
+    inputMap <- inputField.getInputMap
+    inputQueue <- newEmptyMVar
+    historyPointer <- Ref.new (-1)
+    history <- ArrayList.new () :: IOMutable (ArrayList String)
+    let ctrlEnter = KeyStroke.getKeyStroke "ctrl ENTER"
+        ctrlP = KeyStroke.getKeyStroke "ctrl P"
+        ctrlN = KeyStroke.getKeyStroke "ctrl N"
+        onClosed _ = inputQueue.put ":q"
+        onSubmit _ = do
+          script <- trim <$> inputField.getText
+          when (not . null $ script) $ do
+            if script == ":stdin"
+              then
+                do
+                  JOptionPane.showMessageDialog (Just frame) (asObject stdinField) "Console Input" JOptionPane.plain_message
+                  inputField.setText ""
+              else
+                do
+                  inputQueue.put script
+                  history.size >>= historyPointer.put
+                  Collection.add history script
+                  inputField.setText ""
+                  doc <- editor.getDocument
+                  insertIntoEditor ("> " ++ script ++ "\n") doc
+          when (script == ":q") $ System.exit 0
+        prev _ = do
+          histIndex <- historyPointer.get
+          historySize <- history.size
+          when (histIndex >= 0 && histIndex < historySize) $ do
+              history.get histIndex >>= inputField.setText
+              historyPointer.put (if histIndex == 0 then historySize - 1 else histIndex - 1)
+        next _ = do
+          histIndex <- historyPointer.get
+          historySize <- history.size
+          when (histIndex >= 0 && histIndex < historySize) $ do
+            history.get histIndex >>= inputField.setText
+            historyPointer.put ((histIndex + 1) `mod` historySize)
+    enterKeyAction <- AbstractAction.action onSubmit
+    prevAction <- AbstractAction.action prev
+    nextAction <- AbstractAction.action next
+    inputMap.put ctrlEnter (asObject "text-submit")
+    inputMap.put ctrlP (asObject "prev")
+    inputMap.put ctrlN (asObject "next")
+    actionMap <- inputField.getActionMap
+    actionMap.put (asObject "text-submit") enterKeyAction
+    actionMap.put (asObject "prev") prevAction
+    actionMap.put (asObject "next") nextAction
+    contentPane <- frame.getContentPane
+    --layout      <- BorderLayout.new ()
+    layout <- GridLayout.new 0 2 10 10
+    contentPane.setLayout layout
+    Container.add contentPane inputField --(asObject BorderLayout.page_end)
+    Container.add contentPane scrollPane --(asObject BorderLayout.center)
+    --Container.add contentPane stdinField
+    frame.setContentPane contentPane
+    windowListener <- WindowListener.listener onClosed
+    frame.addWindowListener windowListener
+    return (inputQueue, editor, stdinField, frame)
+
+interpreterPreludeImport = ImpDcl {pos=Position.null, pack="frege.repl.PreludeRepl", as=Nothing, imports = linkAll}
+
+preludeHidingImport = ImpDcl {
+  pos = Position.null,
+  pack = "frege.Prelude",
+  as = Nothing,
+  imports = Imports {
+              publik = false,
+              except = true,
+              items = [
+                fnImport "getLine", fnImport "getChar", fnImport "getContents"
+              ]
+            }
+} where
+  fnImport name = Item {publik = false, name = fn name, members = Nothing, alias=""}
+  fn name = Simple {id = Token VARID name 1 0 0 []}
+
+transformDefs defs = do
+  uniqdefs <- removeDuplicateDefs defs
+  return (interpreterPreludeImport : preludeHidingImport : uniqdefs)
+
+
+data GraphicRepl = GraphicRepl {input :: (MVar String), stdinField :: JTextArea, output :: JEditorPane}
+
+instance ReplIO GraphicRepl where
+
+  readline console = try f console `catch` (\(ioe :: IOException) -> return Nothing) where
+    f console = do
+     line <- MVar.take console.input
+     return $ Just line
+
+  write console s = console.output.getDocument >>= (insertIntoEditor s) >> scrollToTop console.output
+  writeln console s = console.output.getDocument >>= (insertIntoEditor (s ++ "\n")) >> scrollToTop console.output
+  interpretSym console g sym env =
+    do
+      stdoutWriter <- StringWriter.new ()
+      stderrWriter <- StringWriter.new ()
+      stdinText <- console.stdinField.getText
+      valMaybe <- fieldValueWithRuntime (symbolClass sym g) (symbolVar sym g) stdinText stdoutWriter stderrWriter env.state.classLoader
+      console.writeln $ maybe "undefined" id valMaybe
+      out <- stdoutWriter.toString
+      err <- stderrWriter.toString
+      when (not $ null out) $ console.writeln out
+      when (not $ null err) $ console.writeln err
+    `catch` (console.writeln . showThrowableCause)
+
+scrollToTop :: JTextComponent -> IO ()
+scrollToTop comp = comp.setCaretPosition 0
+
+insertIntoEditor :: String -> Document -> IO ()
+insertIntoEditor str doc = do
+      len <- doc.getLength
+      doc.insertString 0 str Nothing
+    `catch` (\(e :: BadLocationException) -> println e.getMessage)
+
+readResourceAsString :: String -> IO String
+readResourceAsString fileName = do
+  cl <- ClassLoader.current
+  is <- getResourceAsStream cl fileName
+  isr <- InputStreamReader.new is "UTF-8"
+  BufferedReader.new isr >>= getContentsOf
+
+
+native getResourceAsStream :: ClassLoader -> String -> IO InputStream
+
+main ("-Dterminal=jline": _) = do
   console <- ConsoleReader.new "frege" sysin System.out Nothing "UTF-8"
   console.setPrompt ReplEnv.default.prompt
   console.setExpandEvents false
   console.println welcome
   repl console ReplEnv.default
   System.exit 0
+
+main ("-Dterminal=gui": _) = do
+  (inputQueue, outputViewer, stdinField, frame) <- graphicRepl
+  let console = GraphicRepl inputQueue stdinField outputViewer
+  let showUI = do
+        frame.pack
+        frame.setVisible true
+  r <- Runnable.new showUI
+  invokeLater r
+  console.writeln welcome
+  console.writeln  $ "Enter your code on the left side. Output is displayed here on the right side with latest output on top.\n" ++
+                     "Press Ctrl+Enter to submit. Press Ctrl+p or Ctrl+n to move through history.\n" ++
+                     "Enter ':stdin' to set console input. Enter ':help' for more details.\n"
+  let env = ReplEnv.default.{config <- InterpreterConfig.{transformDefs=transformDefs}}
+  preludeScript <- readResourceAsString "PreludeRepl.fr"
+  let (res, newState) = Interpreter.run (interpret preludeScript) env.config env.state
+  repl console env.{state=newState}
+  return ()
+
+main _ = do
+  let console = ReaderWriterConsole stdin stdout
+  console.writeln welcome
+  repl console ReplEnv.default
+  System.exit 0
+
