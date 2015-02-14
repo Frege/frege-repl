@@ -239,7 +239,7 @@ cmdHelp = [(":t or :type <expression>", "Display the type of an expression."),
             (":reset", "Reset the session discarding all evaluated scripts."),
             (":version", "Display Frege version."),
             (":{", "Start multiline definitions."),
-            (":}", "End multiline defintions."),
+            (":}", "End multiline definitions."),
             (":help <name>", "Display the documentation for the given name." ++
                             " If the name is not provided, display this help message."),
             (":q or :quit", "Quit REPL")]
