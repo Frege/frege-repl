@@ -4,6 +4,8 @@ import frege.Version
 import Java.Net
 import Data.List
 import Interpreter.FregeInterpreter
+import Compiler.common.CompilerOptions (flagtree)
+import Compiler.enums.Flags
 import Compiler.types.Global hiding (Message, Severity)
 import Compiler.types.Global (Message CompilerMessage, Severity())
 import Compiler.types.Positions
@@ -21,20 +23,32 @@ import frege.Prelude (print pPrint)
 import Control.monad.State public(State)
 import Control.Concurrent as C
 
-data ReplEnv = ReplEnv {
-  lastJavaGenSrc :: Maybe String,
-  lastExternalScript :: Maybe String,
-  prompt :: String,
-  config :: InterpreterConfig,
-  state :: InterpreterState
-} where
-  default = ReplEnv {
-    lastJavaGenSrc = Nothing, -- To display last generated Java Source
-    lastExternalScript = Nothing, -- To reload last external script
-    prompt = "frege> ",
-    config = InterpreterConfig.default,
-    state = InterpreterState InterpreterClassLoader.default
-  }
+data ReplEnv = ReplEnv
+    { lastJavaGenSrc :: Maybe String
+    , lastExternalScript :: Maybe String
+    , opts :: ReplOpts
+    , config :: InterpreterConfig
+    , state :: InterpreterState
+    }
+  where
+    default = ReplEnv
+      { lastJavaGenSrc = Nothing -- To display last generated Java Source
+      , lastExternalScript = Nothing -- To reload last external script
+      , opts = replOpts
+      , config = InterpreterConfig.default
+      , state = InterpreterState InterpreterClassLoader.default
+      }
+    replOpts = ReplOpts.default
+
+
+data ReplOpts = ReplOpts
+    { prompt :: String
+    }
+  where
+    default = ReplOpts
+      { prompt = "frege> "
+      }
+
 
 data Repl a = Repl {un :: State ReplEnv a} where
   get = Repl $ State.get
@@ -176,6 +190,29 @@ eval Java = do
         return res
   maybe (javagenDefs env.config.predefs) (\src -> java src) env.lastJavaGenSrc
 
+eval (Set "v") = parseAndSetCompilerFlag "-v"
+eval (Set "hints") = parseAndSetCompilerFlag "-hints"
+eval (Set "nowarn") = parseAndSetCompilerFlag "-nowarn"
+eval (Set "inline") = parseAndSetCompilerFlag "-inline"
+eval (Set "O") = parseAndSetCompilerFlag "-O"
+eval (Set "comments") = parseAndSetCompilerFlag "-comments"
+eval (Set "ascii") = parseAndSetCompilerFlag "-ascii"
+eval (Set "greek") = parseAndSetCompilerFlag "-greek"
+eval (Set "fraktur") = parseAndSetCompilerFlag "-fraktur"
+eval (Set "latin") = parseAndSetCompilerFlag "-latin"
+eval (Set unknown) = return $ ReplInfo [Message.error ("Invalid option: " ++ unknown)]
+
+eval (Unset "v") = clearCompilerFlag Flag.VERBOSE
+eval (Unset "hints") = clearCompilerFlag Flag.HINTS
+eval (Unset "nowarn") = setCompilerFlag Flag.WARNINGS
+eval (Unset "inline") = clearCompilerFlag Flag.INLINE
+eval (Unset "O") = clearCompilerFlag Flag.OPTIMIZE
+eval (Unset "comments") = clearCompilerFlag Flag.COMMENTS
+eval (Unset "ascii") = setCompilerFlag Flag.USEUNICODE
+eval (Unset "greek") = clearCompilerFlag Flag.USEGREEK
+eval (Unset "fraktur") = clearCompilerFlag Flag.USEFRAKTUR
+eval (Unset "latin") = clearCompilerFlag Flag.USEGREEK >> clearCompilerFlag Flag.USEFRAKTUR
+eval (Unset unknown) = return $ ReplInfo [Message.error ("Invalid option: " ++ unknown)]
 
 eval History = do
   env <- Repl.get
@@ -185,6 +222,22 @@ eval Reset = Repl.put ReplEnv.default >> return (ReplInfo [])
 eval Version = return $ ReplInfo [Message.info version]
 eval Help = return $ ReplInfo [Message.info (help cmdHelp)]
 eval _ = return $ ReplInfo []
+
+parseAndSetCompilerFlag flag = do
+  env <- Repl.get
+  case flagtree.lookup flag of
+    Just f -> do
+      Repl.modify ReplEnv.{config <- InterpreterConfig.{compilerFlags <- f}}
+      return $ ReplInfo []
+    Nothing -> return $ ReplInfo [Message.error ("invalid flag " ++ flag)]
+
+clearCompilerFlag flag = do
+  Repl.modify ReplEnv.{config <- InterpreterConfig.{compilerFlags <- (\flags -> Flags.clrFlag flags flag)}}
+  return $ ReplInfo []
+
+setCompilerFlag flag = do
+  Repl.modify ReplEnv.{config <- InterpreterConfig.{compilerFlags <- (\flags -> Flags.setFlag flags flag)}}
+  return $ ReplInfo []
 
 symbolsToReplInfo syms g = ReplInfo $ map (Message.info . showSymbol g) wantedSyms where
   wantedSyms = filter wanted syms
@@ -357,9 +410,25 @@ pure native indexOf :: String -> String -> Int
 pure native substring :: String -> Int -> String
                          | String -> Int -> Int -> String
 
-data Command = Version | Help | HelpDoc String | Browse |
-    BrowseModule String | Type String | Load String | LoadExternal String String | Eval String |
-    Java | DefMulti | History | Reload | Reset | Skip | Quit where
+data Command =
+  Version
+  | Help
+  | HelpDoc String
+  | Browse
+  | BrowseModule String
+  | Type String
+  | Load String
+  | LoadExternal String String
+  | Eval String
+  | Java
+  | Set String
+  | Unset String
+  | DefMulti
+  | History
+  | Reload
+  | Reset
+  | Skip
+  | Quit where
 
     parse   :: String -> Either String Command
     parse s = parse' $ trim s where
@@ -371,6 +440,8 @@ data Command = Version | Help | HelpDoc String | Browse |
     parseCommand s | Just (Just path : _) <- s `match` '^:l.*?\s+(.*)' = Right $ Load path
     parseCommand s | Just (Just src : _) <- s `match` ':help\s+(.*)' = Right $ HelpDoc src
     parseCommand s | Just (Just expr : _) <- s `match` '^:t.*?\s+(.*)' = Right $ Type expr
+    parseCommand s | Just (Just option : _) <- s `match` ':set\s+(.*)' = Right $ Set option
+    parseCommand s | Just (Just option : _) <- s `match` ':unset\s+(.*)' = Right $ Unset option
     parseCommand  ":version" = Right Version
     parseCommand ":browse" = Right $ Browse
     parseCommand ":{" = Right DefMulti
@@ -571,18 +642,18 @@ readResourceAsString fileName = do
   isr <- InputStreamReader.new is "UTF-8"
   BufferedReader.new isr >>= getContentsOf
 
-
 native getResourceAsStream :: ClassLoader -> String -> IO InputStream
 
-main ("-Dterminal=jline": _) = do
+main ("-terminal": "jline": otherOpts) = do
   console <- ConsoleReader.new "frege" sysin System.out Nothing "UTF-8"
-  console.setPrompt ReplEnv.default.prompt
+  let env = ReplEnv.default
+  console.setPrompt env.opts.prompt
   console.setExpandEvents false
   console.println welcome
-  repl console ReplEnv.default
+  repl console env
   System.exit 0
 
-main ("-Dterminal=gui": _) = do
+main ("-terminal": "gui": otherOpts) = do
   (inputQueue, outputViewer, stdinField, frame) <- graphicRepl
   let console = GraphicRepl inputQueue stdinField outputViewer
   let showUI = do
@@ -596,9 +667,11 @@ main ("-Dterminal=gui": _) = do
                      "Enter ':stdin' to set console input. Enter ':help' for more details.\n"
   let env = ReplEnv.default.{config <- InterpreterConfig.{transformDefs=transformDefs}}
   preludeScript <- readResourceAsString "PreludeRepl.fr"
-  let (res, newState) = Interpreter.run (interpret preludeScript) env.config env.state
+  let newState = snd $ Interpreter.run (interpret preludeScript) env.config env.state
   repl console env.{state=newState}
   return ()
+
+main ("-terminal": invalidTerminal: otherOpts) = stderr.println $ "Invalid value for terminal: " ++ invalidTerminal
 
 main _ = do
   let console = ReaderWriterConsole stdin stdout
