@@ -17,11 +17,11 @@ import Compiler.types.Tokens
 import Java.Swing
 import Java.Awt (Component, ActionListener)
 import Java.Util (Scanner, ArrayList, Collection)
-import Repl.Gui
 import frege.Prelude hiding (print)
 import frege.Prelude (print pPrint)
 import Control.monad.State public(State)
 import Control.Concurrent as C
+import Repl.Gui
 
 data ReplEnv = ReplEnv
     { lastJavaGenSrc :: Maybe String
@@ -48,7 +48,6 @@ data ReplOpts = ReplOpts
     default = ReplOpts
       { prompt = "frege> "
       }
-
 
 data Repl a = Repl {un :: State ReplEnv a} where
   get = Repl $ State.get
@@ -403,7 +402,6 @@ fixHelpLink s = s
 native toURI :: URL -> ST s URI throws URISyntaxException
 pure native asObject "(java.lang.Object)" :: a -> Object
 
-
 pure native isEmpty :: String -> Bool
 pure native replaceAll :: String -> String -> String -> String
 pure native indexOf :: String -> String -> Int
@@ -506,80 +504,6 @@ instance ReplIO ReaderWriterConsole where
       console.writeln $ maybe "undefined" id valMaybe
     `catch` (console.writeln . showThrowableCause)
 
-graphicRepl :: IO (MVar String, JEditorPane, JTextArea, JFrame)
-graphicRepl = do
-    inputField   <- JTextArea.new "" 5 30
-    stdinField   <- JTextArea.new "" 25 30
-    celsiusLabel    <- JLabel.new ()
-    convertButton   <- JButton.new ()
-    (frame :: JFrame)           <- JFrame.new ()
-    Window.setLocation frame 100 100
-    editor::JEditorPane <- JEditorPane.new "text/plain" ""
-    editor.setEditable false
-    scrollPane <- JScrollPane.new editor
-    dimension <- Dimension.new 800 800
-    JComponent.setPreferredSize scrollPane dimension
-    frame.setDefaultCloseOperation JFrame.dispose_on_close
-    frame.setTitle "Frege REPL"
-    inputMap <- inputField.getInputMap
-    inputQueue <- newEmptyMVar
-    historyPointer <- Ref.new (-1)
-    history <- ArrayList.new () :: IOMutable (ArrayList String)
-    let ctrlEnter = KeyStroke.getKeyStroke "ctrl ENTER"
-        ctrlP = KeyStroke.getKeyStroke "ctrl P"
-        ctrlN = KeyStroke.getKeyStroke "ctrl N"
-        onClosed _ = inputQueue.put ":q"
-        onSubmit _ = do
-          script <- trim <$> inputField.getText
-          when (not . null $ script) $ do
-            if script == ":stdin"
-              then
-                do
-                  JOptionPane.showMessageDialog (Just frame) (asObject stdinField) "Console Input" JOptionPane.plain_message
-                  inputField.setText ""
-              else
-                do
-                  inputQueue.put script
-                  history.size >>= historyPointer.put
-                  Collection.add history script
-                  inputField.setText ""
-                  doc <- editor.getDocument
-                  insertIntoEditor ("> " ++ script ++ "\n") doc
-          when (script == ":q") $ System.exit 0
-        prev _ = do
-          histIndex <- historyPointer.get
-          historySize <- history.size
-          when (histIndex >= 0 && histIndex < historySize) $ do
-              history.get histIndex >>= inputField.setText
-              historyPointer.put (if histIndex == 0 then historySize - 1 else histIndex - 1)
-        next _ = do
-          histIndex <- historyPointer.get
-          historySize <- history.size
-          when (histIndex >= 0 && histIndex < historySize) $ do
-            history.get histIndex >>= inputField.setText
-            historyPointer.put ((histIndex + 1) `mod` historySize)
-    enterKeyAction <- AbstractAction.action onSubmit
-    prevAction <- AbstractAction.action prev
-    nextAction <- AbstractAction.action next
-    inputMap.put ctrlEnter (asObject "text-submit")
-    inputMap.put ctrlP (asObject "prev")
-    inputMap.put ctrlN (asObject "next")
-    actionMap <- inputField.getActionMap
-    actionMap.put (asObject "text-submit") enterKeyAction
-    actionMap.put (asObject "prev") prevAction
-    actionMap.put (asObject "next") nextAction
-    contentPane <- frame.getContentPane
-    --layout      <- BorderLayout.new ()
-    layout <- GridLayout.new 0 2 10 10
-    contentPane.setLayout layout
-    Container.add contentPane inputField --(asObject BorderLayout.page_end)
-    Container.add contentPane scrollPane --(asObject BorderLayout.center)
-    --Container.add contentPane stdinField
-    frame.setContentPane contentPane
-    windowListener <- WindowListener.listener onClosed
-    frame.addWindowListener windowListener
-    return (inputQueue, editor, stdinField, frame)
-
 interpreterPreludeImport = ImpDcl {pos=Position.null, pack="frege.repl.PreludeRepl", as=Nothing, imports = linkAll}
 
 preludeHidingImport = ImpDcl {
@@ -601,40 +525,6 @@ transformDefs defs = do
   uniqdefs <- removeDuplicateDefs defs
   return (interpreterPreludeImport : preludeHidingImport : uniqdefs)
 
-
-data GraphicRepl = GraphicRepl {input :: (MVar String), stdinField :: JTextArea, output :: JEditorPane}
-
-instance ReplIO GraphicRepl where
-
-  readline console = try f console `catch` (\(ioe :: IOException) -> return Nothing) where
-    f console = do
-     line <- MVar.take console.input
-     return $ Just line
-
-  write console s = console.output.getDocument >>= (insertIntoEditor s) >> scrollToTop console.output
-  writeln console s = console.output.getDocument >>= (insertIntoEditor (s ++ "\n")) >> scrollToTop console.output
-  interpretSym console g sym env =
-    do
-      stdoutWriter <- StringWriter.new ()
-      stderrWriter <- StringWriter.new ()
-      stdinText <- console.stdinField.getText
-      valMaybe <- fieldValueWithRuntime (symbolClass sym g) (symbolVar sym g) stdinText stdoutWriter stderrWriter env.state.classLoader
-      console.writeln $ maybe "undefined" id valMaybe
-      out <- stdoutWriter.toString
-      err <- stderrWriter.toString
-      when (not $ null out) $ console.writeln out
-      when (not $ null err) $ console.writeln err
-    `catch` (console.writeln . showThrowableCause)
-
-scrollToTop :: JTextComponent -> IO ()
-scrollToTop comp = comp.setCaretPosition 0
-
-insertIntoEditor :: String -> Document -> IO ()
-insertIntoEditor str doc = do
-      len <- doc.getLength
-      doc.insertString 0 str Nothing
-    `catch` (\(e :: BadLocationException) -> println e.getMessage)
-
 readResourceAsString :: String -> IO String
 readResourceAsString fileName = do
   cl <- ClassLoader.current
@@ -652,24 +542,6 @@ main ("-terminal": "jline": otherOpts) = do
   console.println welcome
   repl console env
   System.exit 0
-
-main ("-terminal": "gui": otherOpts) = do
-  (inputQueue, outputViewer, stdinField, frame) <- graphicRepl
-  let console = GraphicRepl inputQueue stdinField outputViewer
-  let showUI = do
-        frame.pack
-        frame.setVisible true
-  r <- Runnable.new showUI
-  invokeLater r
-  console.writeln welcome
-  console.writeln  $ "Enter your code on the left side. Output is displayed here on the right side with latest output on top.\n" ++
-                     "Press Ctrl+Enter to submit. Press Ctrl+p or Ctrl+n to move through history.\n" ++
-                     "Enter ':stdin' to set console input. Enter ':help' for more details.\n"
-  let env = ReplEnv.default.{config <- InterpreterConfig.{transformDefs=transformDefs}}
-  preludeScript <- readResourceAsString "PreludeRepl.fr"
-  let newState = snd $ Interpreter.run (interpret preludeScript) env.config env.state
-  repl console env.{state=newState}
-  return ()
 
 main ("-terminal": invalidTerminal: otherOpts) = stderr.println $ "Invalid value for terminal: " ++ invalidTerminal
 

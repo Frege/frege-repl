@@ -15,7 +15,7 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.build.sourceDirectory>src/main/frege</project.build.sourceDirectory>
-        <assembly.name>frege-repl-1.1.1-SNAPSHOT</assembly.name>
+        <assembly.name>frepl</assembly.name>
     </properties>
 
     <build>
@@ -46,6 +46,41 @@
                             <mainClass>frege.repl.FregeRepl</mainClass>
                         </manifest>
                     </archive>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>appassembler-maven-plugin</artifactId>
+                <version>1.9</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>assemble</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <assembleDirectory>${project.build.directory}/frepl</assembleDirectory>
+                    <repositoryName>lib</repositoryName>
+                    <programs>
+                        <program>
+                            <mainClass>frege.repl.FregeRepl</mainClass>
+                            <id>frepl</id>
+                        </program>
+                        <program>
+                            <mainClass>frege.repl.FregeRepl</mainClass>
+                            <id>freplj</id>
+                            <commandLineArguments>
+                                <commandLineArgument>-terminal</commandLineArgument>
+                                <commandLineArgument>jline</commandLineArgument>
+                            </commandLineArguments>
+                        </program>
+                        <program>
+                            <mainClass>frege.repl.GraphicRepl</mainClass>
+                            <id>freplg</id>
+                        </program>
+                    </programs>
                 </configuration>
             </plugin>
             <plugin>
