@@ -62,7 +62,8 @@ In addition to Frege code, the following commands are supported:
 1. Download Frege REPL archive from [releases](https://github.com/Frege/frege-repl/releases).
 2. Extract the archive
 3. Run the following command: (JRE 7 or above required) <BR/>
-   `java -jar frege-repl-<version>.jar` where `<version>` is the version number on the jar.
+   * `$ frepl/bin/frepl` or 
+   * `$ frepl/bin/freplj` - JLine enabled REPL for command line history and navigation (might have problems with unicode characters in Windows)
 
 ##Build from sources##
 
@@ -70,5 +71,5 @@ In addition to Frege code, the following commands are supported:
 2. ```~/workspace/frege-interpreter$ mvn install```
 3. ```~/workspace$ git clone https://github.com/Frege/frege-repl.git```
 4. ```~/workspace/frege-repl$ mvn install```
-5. To run, ```~/workspace/frege-repl$ mvn exec:exec```
+5. To run, ```~/workspace/frege-repl$ frege-repl-core/target/frepl/bin/frepl```
    
