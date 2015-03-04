@@ -1,0 +1,64 @@
+
+ext {
+}
+
+buildscript {
+    repositories {
+        maven {
+            url = "https://oss.sonatype.org/content/groups/public"
+        }
+    }
+    dependencies {
+        classpath "org.frege-lang:frege-gradle-plugin:0.1"
+    }
+}
+
+allprojects {
+
+}
+
+subprojects {
+
+    apply plugin: "java"
+    apply plugin: "groovy"
+    apply plugin: "maven"
+    apply plugin: "signing"
+    apply plugin: "frege"
+    apply plugin: "application"
+
+    defaultTasks "build"
+
+    ext {
+        baseVersion = "1.1.1"
+        isSnapshot = true
+        snapshotAppendix = "-SNAPSHOT"
+        projectVersion = baseVersion + (isSnapshot ? snapshotAppendix : "")
+
+        fregeBaseVersion = "3.22.367"
+        fregeClassifier = "-g2737683"
+        fregeVersion = "$fregeBaseVersion$fregeClassifier"
+    }
+
+    apply from: "$rootDir/gradle/sonatype.gradle"
+
+    version = projectVersion
+    group = groupName
+    archivesBaseName = project.name
+
+    repositories {
+//        mavenLocal()
+        mavenCentral()
+        maven {
+            url = "https://oss.sonatype.org/content/groups/public"
+        }
+    }
+
+    dependencies {
+        compile "com.theoryinpractise.frege:frege:$fregeVersion"
+//        compile "org.frege-lang:frege-gradle-plugin:0.2-SNAPSHOT"
+    }
+
+
+
+
+}
