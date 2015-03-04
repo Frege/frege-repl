@@ -11,8 +11,8 @@ ext {
     projectName = "Frege Repl"
     pomProjectName = projectName
 
-    groupName = "com.github.mperry.frege"
-//    "org.frege-lang"
+//    groupName = "com.github.mperry.frege"
+    groupName = "org.frege-lang"
     scmUrl = "git://github.com:Frege/frege-repl.git"
     scmGitFile = "scm:git@github.com:Frege/frege-repl.git"
     projectDescription = projectName
