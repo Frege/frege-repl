@@ -1,0 +1,9 @@
+language: java
+jdk:
+- oraclejdk7
+env:
+  global:
+  - secure: KlxzNI3/FgMq2zoIVQWwlNLGe3L+uRYhX8CgofLTe27JSYDXUYnGqv/XH4EAW9KsJGXQLeHSyfhO5FoGpa1r23ijCF75xVszz+mNFqrB+OTG66uWsn7x06tBAymJn36Jm2nPo62annuFF2Ooz4XBnvBTETj93l+q+XMax9U5DKw=
+  - secure: guDzn1yz8Kj/MLo+3D48aNiU93mMDKe/iCv8ePACYzSJ596AuGqH0eVZWdDastFJmAgGPI0owjgujdEbx9YOf3Yt8CVSH4h6tcu11Joq+ejW/RccPpDz/W/jHdp2oH1tvlTGyE/5R+Q6u5FnsvssmJf022mgotnrS8sReHxssN8=
+after_success:
+- chmod +x ./deploy.sh; ./deploy.sh

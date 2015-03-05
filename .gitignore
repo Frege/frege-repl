@@ -49,3 +49,8 @@ Desktop.ini
 
 # Ignore Intellij files
 *.iml
+
+.gradle
+.idea
+build
+

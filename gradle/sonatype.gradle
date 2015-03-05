@@ -1,0 +1,93 @@
+
+ext {
+
+    sonatypeBaseUrl = "https://oss.sonatype.org"
+    sonatypeSnapshotUrl = "$sonatypeBaseUrl/content/repositories/snapshots/"
+    sonatypeRepositoryUrl = "$sonatypeBaseUrl/content/groups/public"
+    sonatypeReleaseUrl = "$sonatypeBaseUrl/service/local/staging/deploy/maven2/"
+    sonatypeUploadUrl = isSnapshot ? sonatypeSnapshotUrl : sonatypeReleaseUrl
+
+    projectUrl ="https://github.com/Frege/frege-repl"
+    projectName = "Frege Repl"
+    pomProjectName = projectName
+
+//    groupName = "com.github.mperry.frege"
+    groupName = "org.frege-lang"
+    scmUrl = "git://github.com:Frege/frege-repl.git"
+    scmGitFile = "scm:git@github.com:Frege/frege-repl.git"
+    projectDescription = projectName
+
+    licenseName = "BSD 3-clause license"
+    licenseUrl = 'http://opensource.org/licenses/BSD-3-Clause'
+
+    organisation = groupName
+    primaryEmail = "frege-programming-language@googlegroups.com"
+}
+
+Boolean doSigning() {
+    signingEnabled.trim() == "true"
+}
+
+task javadocJar(type: Jar, dependsOn: "javadoc") {
+    classifier = 'javadoc'
+    from "build/docs/javadoc"
+}
+
+task sourcesJar(type: Jar) {
+    from sourceSets.main.allSource
+    classifier = 'sources'
+}
+
+artifacts {
+    archives jar
+    archives javadocJar
+    archives sourcesJar
+}
+
+signing {
+    required { doSigning() }
+    sign configurations.archives
+}
+
+uploadArchives {
+    enabled = true
+    repositories {
+        mavenDeployer {
+            if (doSigning()) {
+                beforeDeployment { MavenDeployment deployment -> signing.signPom(deployment) }
+            }
+
+            repository(url: sonatypeUploadUrl) {
+                authentication(userName: sonatypeUsername, password: sonatypePassword)
+            }
+            pom {
+                groupId = groupName
+                project {
+                    name pomProjectName
+                    packaging 'jar'
+                    description projectDescription
+                    url projectUrl
+                    organization {
+                        name pomProjectName
+                        url projectUrl
+                    }
+                    scm {
+                        url scmUrl
+                    }
+                    licenses {
+                        license {
+                            name licenseName
+                            url licenseUrl
+                            distribution 'repo'
+                        }
+                    }
+                    developers {
+                        developer {
+                            email primaryEmail
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

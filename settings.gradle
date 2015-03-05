@@ -1,0 +1,5 @@
+
+include "frege-repl-core", "frege-repl-nativedeps"
+
+
+
