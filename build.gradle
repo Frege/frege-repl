@@ -9,7 +9,7 @@ buildscript {
         }
     }
     dependencies {
-        classpath "org.frege-lang:frege-gradle-plugin:0.1"
+        classpath "org.frege-lang:frege-gradle-plugin:0.2-SNAPSHOT"
     }
 }
 
@@ -40,6 +40,9 @@ subprojects {
     }
 
     apply from: "$rootDir/gradle/sonatype.gradle"
+
+    sourceCompatibility = 1.7
+    targetCompatibility = 1.7
 
     version = projectVersion
     group = groupName
