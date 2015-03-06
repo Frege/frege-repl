@@ -12,8 +12,7 @@ compileFrege {
 dependencies {
     compile project(":frege-repl-nativedeps")
     compile "jline:jline:2.12"
-    compile "com.github.mperry.frege:frege-interpreter-core:1.1-SNAPSHOT"
-    compile "com.github.mperry.frege:frege-repl-nativedeps:1.1.1-SNAPSHOT"
+    compile "org.frege-lang:frege-interpreter-core:1.0.3-SNAPSHOT"
 
     testCompile "junit:junit:4.11"
 
