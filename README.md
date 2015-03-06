@@ -73,3 +73,9 @@ In addition to Frege code, the following commands are supported:
 4. ```~/workspace/frege-repl$ mvn install```
 5. To run, ```~/workspace/frege-repl$ frege-repl-core/target/frepl/bin/frepl```
    
+## Continuous Integration
+
+Travis: https://travis-ci.org/Frege/frege-repl/
+
+Sonatype: https://oss.sonatype.org/content/groups/public/org/frege-lang/
+
