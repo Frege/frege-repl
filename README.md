@@ -1,4 +1,4 @@
-#Frege REPL#
+#Frege REPL# [![Build Status](https://travis-ci.org/Frege/frege-repl.svg)](https://travis-ci.org/Frege/frege-repl)
 
 This is the command line REPL for Frege. Frege code snippets can be entered on the prompt to get them evaluated.
 In addition to Frege code, the following commands are supported:
