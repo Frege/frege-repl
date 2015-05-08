@@ -1,5 +1,10 @@
 
+apply plugin: "application"
+
 tasks.compileFrege.dependsOn "compileJava"
+
+mainClassName = "frege.repl.FregeRepl"
+applicationName = "fregei"
 
 compileFrege {
     verbose = true
@@ -12,6 +17,7 @@ compileFrege {
 dependencies {
     compile project(":frege-repl-nativedeps")
     compile "jline:jline:2.12"
+    compile "org.frege-lang:frege-interpreter-core:$fregeInterpreterVersion"
 
     testCompile "junit:junit:4.11"
 

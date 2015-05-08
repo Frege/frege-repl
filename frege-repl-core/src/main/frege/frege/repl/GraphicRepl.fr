@@ -12,7 +12,7 @@ data GraphicRepl = GraphicRepl {input :: (MVar String), stdinField :: JTextArea,
 
 instance ReplIO GraphicRepl where
 
-  readline console = try f console `catch` (\(ioe :: IOException) -> return Nothing) where
+  readline console _ = try f console `catch` (\(ioe :: IOException) -> return Nothing) where
     f console = do
      line <- MVar.take console.input
      return $ Just line
@@ -24,7 +24,7 @@ instance ReplIO GraphicRepl where
       stdoutWriter <- StringWriter.new ()
       stderrWriter <- StringWriter.new ()
       stdinText <- console.stdinField.getText
-      valMaybe <- fieldValueWithRuntime (symbolClass sym g) (symbolVar sym g) stdinText stdoutWriter stderrWriter env.state.classLoader
+      valMaybe <- fieldValueWithRuntime (symbolClass sym g) (symbolVar sym g) stdinText stdoutWriter stderrWriter env.state
       console.writeln $ maybe "undefined" id valMaybe
       out <- stdoutWriter.toString
       err <- stderrWriter.toString
@@ -128,8 +128,8 @@ main = do
   console.writeln  $ "Enter your code on the left side. Output is displayed here on the right side with latest output on top.\n" ++
                      "Press Ctrl+Enter to submit. Press Ctrl+p or Ctrl+n to move through history.\n" ++
                      "Enter ':stdin' to set console input. Enter ':help' for more details.\n"
-  let env = ReplEnv.default.{config <- InterpreterConfig.{transformDefs=transformDefs}}
+  env <- ReplEnv.default
   preludeScript <- readResourceAsString "PreludeRepl.fr"
-  let newState = snd $ Interpreter.run (interpret preludeScript) env.config env.state
+  newState <- snd <$> Interpreter.run (interpret preludeScript) env.config env.state
   repl console env.{state=newState}
   return ()
