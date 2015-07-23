@@ -63,4 +63,10 @@ subprojects {
         compile "org.frege-lang:frege-interpreter-core:1.1"
     }
 
+
+    nexusStaging {
+        packageGroup = groupName
+        stagingProfileId = "a622b6773bea07"
+    }
+
 }
