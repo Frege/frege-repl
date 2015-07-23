@@ -31,8 +31,8 @@ subprojects {
     defaultTasks "build"
 
     ext {
-        baseVersion = "1.2"
-        isSnapshot = false
+        baseVersion = "1.3"
+        isSnapshot = true
         snapshotAppendix = "-SNAPSHOT"
         projectVersion = baseVersion + (isSnapshot ? snapshotAppendix : "")
 
