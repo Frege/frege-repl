@@ -1,6 +1,7 @@
 language: java
 jdk:
 - oraclejdk7
+sudo: false
 env:
   global:
   - secure: IfIlF3fkbQiSKD3TFj1pMO4OncjLTrqHSrixP5hKnaGx5wlmL7EXYd/crG04YwM4+qBGzBm+kFNW7IMtHJMGHfgnoQ1Vq4PqvFWBD6exK0czKzg1d8dQi29Kww9B1IrwWOLIEJ2SnzxqMchZnNbRRZZXoauv71Yszzl89YSt0+E=

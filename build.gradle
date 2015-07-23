@@ -8,7 +8,7 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath "org.frege-lang:frege-gradle-plugin:0.2"
+        classpath "org.frege-lang:frege-gradle-plugin:0.4"
     }
 }
 
@@ -23,18 +23,17 @@ subprojects {
     apply plugin: "maven"
     apply plugin: "signing"
     apply plugin: "frege"
-    apply plugin: "application"
 
     defaultTasks "build"
 
     ext {
-        baseVersion = "1.1.3"
+        baseVersion = "1.2"
         isSnapshot = true
         snapshotAppendix = "-SNAPSHOT"
         projectVersion = baseVersion + (isSnapshot ? snapshotAppendix : "")
 
-        fregeBaseVersion = "3.22.367"
-        fregeClassifier = "-g2737683"
+        fregeBaseVersion = "3.22.524"
+        fregeClassifier = "-gcc99d7e"
         fregeVersion = "$fregeBaseVersion$fregeClassifier"
     }
 
@@ -56,20 +55,20 @@ subprojects {
     }
 
     dependencies {
-        compile "com.theoryinpractise.frege:frege:$fregeVersion"
-        compile "org.frege-lang:frege-interpreter-core:1.0.4"
+        compile "org.frege-lang:frege:$fregeVersion"
+        compile "org.frege-lang:frege-interpreter-core:1.0.5"
     }
 
-    tasks.classes.dependsOn "checkValidVersion"
+//    tasks.classes.dependsOn "checkValidVersion"
 
-    task checkValidVersion << {
-        checkValidVersion(JavaVersion.VERSION_1_7, JavaVersion.current())
-    }
+//    task checkValidVersion << {
+//        checkValidVersion(JavaVersion.VERSION_1_7, JavaVersion.current())
+//    }
 
 }
 
-def checkValidVersion(JavaVersion expected, JavaVersion actual) {
-    if (expected != actual) {
-        throw new GradleException("Require Java version $expected, actual version is $actual")
-    }
-}
+//def checkValidVersion(JavaVersion expected, JavaVersion actual) {
+//    if (expected != actual) {
+//        throw new GradleException("Require Java version $expected, actual version is $actual")
+//    }
+//}
