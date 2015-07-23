@@ -59,3 +59,4 @@ subprojects {
         compile "org.frege-lang:frege-interpreter-core:1.1-SNAPSHOT"
     }
 
+}
