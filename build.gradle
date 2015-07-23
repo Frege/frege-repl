@@ -59,16 +59,3 @@ subprojects {
         compile "org.frege-lang:frege-interpreter-core:1.1-SNAPSHOT"
     }
 
-//    tasks.classes.dependsOn "checkValidVersion"
-
-//    task checkValidVersion << {
-//        checkValidVersion(JavaVersion.VERSION_1_7, JavaVersion.current())
-//    }
-
-}
-
-//def checkValidVersion(JavaVersion expected, JavaVersion actual) {
-//    if (expected != actual) {
-//        throw new GradleException("Require Java version $expected, actual version is $actual")
-//    }
-//}
