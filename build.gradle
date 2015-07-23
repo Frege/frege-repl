@@ -56,7 +56,7 @@ subprojects {
 
     dependencies {
         compile "org.frege-lang:frege:$fregeVersion"
-        compile "org.frege-lang:frege-interpreter-core:1.0.5"
+        compile "org.frege-lang:frege-interpreter-core:1.1-SNAPSHOT"
     }
 
 //    tasks.classes.dependsOn "checkValidVersion"
