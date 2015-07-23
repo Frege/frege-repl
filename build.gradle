@@ -9,11 +9,15 @@ buildscript {
     }
     dependencies {
         classpath "org.frege-lang:frege-gradle-plugin:0.4"
+        classpath "io.codearte.gradle.nexus:gradle-nexus-staging-plugin:0.5.3"
     }
 }
 
+apply plugin: 'io.codearte.nexus-staging'
+
 allprojects {
 
+    defaultTasks "build"
 }
 
 subprojects {
@@ -28,7 +32,7 @@ subprojects {
 
     ext {
         baseVersion = "1.2"
-        isSnapshot = true
+        isSnapshot = false
         snapshotAppendix = "-SNAPSHOT"
         projectVersion = baseVersion + (isSnapshot ? snapshotAppendix : "")
 
@@ -56,7 +60,7 @@ subprojects {
 
     dependencies {
         compile "org.frege-lang:frege:$fregeVersion"
-        compile "org.frege-lang:frege-interpreter-core:1.1-SNAPSHOT"
+        compile "org.frege-lang:frege-interpreter-core:1.1"
     }
 
 }
