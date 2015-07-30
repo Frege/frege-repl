@@ -12,7 +12,6 @@ compileFrege {
 dependencies {
     compile project(":frege-repl-nativedeps")
     compile "jline:jline:2.12"
-    compile "org.frege-lang:frege-interpreter-core:1.0.5"
 
     testCompile "junit:junit:4.11"
 
