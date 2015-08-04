@@ -19,8 +19,8 @@ import Java.Awt (Component, ActionListener)
 import Java.Util (Scanner, ArrayList, Collection)
 import frege.Prelude hiding (print)
 import frege.Prelude (print pPrint)
-import Control.monad.State public(State)
-import Control.Concurrent as C
+import Control.monad.trans.MonadIO
+import Control.monad.State
 import Repl.Gui
 
 data ReplEnv = ReplEnv
@@ -28,39 +28,54 @@ data ReplEnv = ReplEnv
     , lastExternalScript :: Maybe String
     , opts :: ReplOpts
     , config :: InterpreterConfig
-    , state :: InterpreterState
+    , state :: MutableIO InterpreterClassLoader
     }
   where
-    default = ReplEnv
-      { lastJavaGenSrc = Nothing -- To display last generated Java Source
-      , lastExternalScript = Nothing -- To reload last external script
-      , opts = replOpts
-      , config = InterpreterConfig.default
-      , state = InterpreterState InterpreterClassLoader.default
-      }
-    replOpts = ReplOpts.default
+    default = do
+      loader <- InterpreterClassLoader.new ()
+      return ReplEnv
+        { lastJavaGenSrc = Nothing -- To display last generated Java Source
+        , lastExternalScript = Nothing -- To reload last external script
+        , opts = ReplOpts.default
+        , config = InterpreterConfig.default
+        , state = loader
+        }
+
+    reset = do
+      loader <- liftIO $ InterpreterClassLoader.new ()
+      Repl.modify ReplEnv.{
+                            state = loader
+                          , lastExternalScript = Nothing
+                          , lastJavaGenSrc = Nothing
+                          , config <- InterpreterConfig.{predefs = ""}
+                          }
 
 
 data ReplOpts = ReplOpts
     { prompt :: String
+    , multilinePrompt :: String
     }
   where
     default = ReplOpts
       { prompt = "frege> "
+      , multilinePrompt = "> "
       }
 
-data Repl a = Repl {un :: State ReplEnv a} where
-  get = Repl $ State.get
-  put s = Repl $ State.put s
+data Repl a = Repl {un :: StateT ReplEnv IO a} where
+  get = Repl $ StateT.get
+  put s = Repl $ StateT.put s
   modify f = do
       s <- Repl.get
       Repl.put (f s)
   run (Repl s) env = s.run env
-  runWithDefault (Repl s) = s.run ReplEnv.default
+  runWithDefault (Repl s) = ReplEnv.default >>= s.run
 
 instance Monad Repl where
   return = Repl . return
   (Repl state) >>= f = Repl $ state >>= (\a -> Repl.un $ f a)
+
+instance MonadIO Repl where
+  liftIO = Repl . liftIO
 
 
 data ReplResult = ReplInfo [Message]
@@ -75,14 +90,14 @@ data ReplResult = ReplInfo [Message]
 repl :: ReplIO a => a -> ReplEnv -> IO ()
 repl console env = do
   cmd <- read console env
-  let (res, newEnv) = Repl.run (eval cmd) env
+  (res, newEnv) <- Repl.run (eval cmd) env
   print console cmd res newEnv
   loop console cmd res newEnv
 
 read :: ReplIO a => a -> ReplEnv -> IO Command
 read console state = do
    console.writeln ""
-   lineMaybe <- console.readline
+   lineMaybe <- console.readline state.opts.prompt
    maybe (return Quit) readMore lineMaybe
  where
    readAgain = read console state
@@ -91,7 +106,7 @@ read console state = do
      either (\msg -> console.writeln (show msg) >> readAgain) return res
    readMore line = case Command.parse line of
      Left err -> (console.writeln err) >> readAgain
-     Right DefMulti -> readMultiline console >>= (return . Eval)
+     Right DefMulti -> readMultiline console state.opts.multilinePrompt >>= (return . Eval)
      Right Reload -> maybe
        (console.writeln "No source to reload!" >> readAgain) readResource state.lastExternalScript
      Right (Load path) -> readResource path
@@ -100,7 +115,7 @@ read console state = do
 print :: ReplIO a => a -> Command -> ReplResult -> ReplEnv -> IO ()
 print _ Java (JavaSource src) _ = javaSourceGUI src
 print _ (HelpDoc src) (DocHelp doc) _ = if null doc then return () else helpGUI src doc
-print console _ (ReplInfo msgs) _ = printMessages console msgs
+print console _ (ReplInfo msgs) env = printMessages console msgs
 print console (cmd@(Eval line)) (CodeInfo sourceRepr g msgs) env = case sourceRepr of
   Expression sym | isVariable g sym =
     if isString g sym
@@ -108,22 +123,21 @@ print console (cmd@(Eval line)) (CodeInfo sourceRepr g msgs) env = case sourceRe
       else do
         let evalShow = do
                         let varDecl = variableDeclScript sym.name.base line
+                            updatePredefs predefs = predefs ++ "\n" ++ varDecl
                         when (line /= sym.name.base) $
-                          Repl.modify ReplEnv.{config <- InterpreterConfig.{predefs <- ((:) varDecl)}}
+                          Repl.modify ReplEnv.{config <- InterpreterConfig.{predefs <- updatePredefs}}
                         eval (Eval $ buildShowScript sym.name.base g sym)
-        let (res, newEnv) = Repl.run evalShow env
+        (res, newEnv) <- Repl.run evalShow env
         case res of
           CodeInfo{} -> print console cmd res newEnv
           _ -> printSymbolType console g sym
   Expression sym = printSymbolType console g sym
-  Definitions syms = do
+  Definitions syms markerSym = do
     let symLabels = map (showSymbol g) $ filter (not . Symbol.{alias?}) newSyms
         newSyms = filter (\sym -> sym.pos.line > lineStart) syms
-        lineStart = case env.config.predefs of
-          [] -> 0
-          (_:xs) -> fold (\z \x -> z + length (lines x)) 1 xs
+        lineStart = markerSym.pos.line
     when (not $ null symLabels) $ console.writeln $ intercalate newLine symLabels
-    printMessages console $ filter (\msg -> msg.pos.line > lineStart) msgs
+    printMessages console (filter (\msg -> msg.pos.line > lineStart) msgs)
   Module moduleName = do
     console.writeln $ "Module " ++ moduleName
     printMessages console msgs
@@ -132,20 +146,29 @@ print _ _ _ _ = return ()
 
 loop :: ReplIO a => a -> Command -> ReplResult -> ReplEnv -> IO ()
 loop console Quit _ _ = return ()
-loop console Reset _ _ = repl console ReplEnv.default
+loop console Reset _ env = repl console env
 loop console _ _ env = repl console env
 
 eval :: Command -> Repl ReplResult
 eval (Eval line) = do
   env <- Repl.get
-  let (res, newState) = Interpreter.run (interpret line) env.config env.state
+  (res, newState) <- liftIO $ Interpreter.run (interpret line) env.config env.state
   case res of
     InterpreterResult.Success{sourceRepr=sourceRepr, compilerState=g} -> do
       case sourceRepr of
-        Module{} -> do
-          Repl.modify ReplEnv.{lastJavaGenSrc=Just line, state = newState}
-        Definitions{} -> do
-          Repl.modify ReplEnv.{lastJavaGenSrc=Nothing, config <- InterpreterConfig.{predefs<-(line:)}}
+        Module moduleName -> do
+          let importModuleStmt = "import " ++ moduleName
+          Repl.modify ReplEnv.{lastJavaGenSrc=Just line,
+                               state = newState}
+          newEnv <- Repl.get
+          let updatePredefs predefs = predefs ++ "\n" ++ importModuleStmt
+          when (not $ containsStr newEnv.config.predefs importModuleStmt) $
+            Repl.modify ReplEnv.{config <- InterpreterConfig.{predefs<-updatePredefs}}
+        Definitions syms separatorSym -> do
+          let varName = separatorSym.name.base
+              separator = varName ++ " = 0"
+              updatePredefs predefs = predefs ++ "\n" ++ separator ++ "\n" ++ line
+          Repl.modify ReplEnv.{lastJavaGenSrc=Nothing, config <- InterpreterConfig.{predefs<-updatePredefs}}
         Expression{} -> do
           Repl.modify ReplEnv.{lastJavaGenSrc=Just line, state = newState}
       return $ CodeInfo sourceRepr g (Message.fromGlobal g)
@@ -153,7 +176,7 @@ eval (Eval line) = do
 
 eval (Type expr) = do
   env <- Repl.get
-  let res = fst $ Interpreter.run (typeof expr) env.config env.state
+  res <- liftIO $ fst <$> Interpreter.run (typeof expr) env.config env.state
   return $ either ReplInfo (\typ -> ReplInfo [Message.info typ]) res
 
 eval (LoadExternal src script) = do
@@ -164,30 +187,43 @@ eval (LoadExternal src script) = do
 
 eval (BrowseModule moduleName) = do
   env <- Repl.get
-  let res = fst $ Interpreter.run (browseModule moduleName) env.config env.state
-  return $ maybe (ReplInfo []) (\(syms, g) -> symbolsToReplInfo syms g) res
+  res <- liftIO $ fst <$> Interpreter.run (browseModule moduleName) env.config env.state
+  let wanted sym = sym.name.base !~ '^frege_interpreter_var'
+  return $ maybe (ReplInfo []) (\(syms, g) -> symbolsToReplInfo g . filter wanted $ syms) res
 
 eval Browse = do
   env <- Repl.get
-  let src = unlines $ reverse env.config.predefs
-      res = fst $ Interpreter.run (browse src) env.config.{predefs=[]} env.state
-  return $ maybe (ReplInfo []) (\(syms, g) -> symbolsToReplInfo syms g) res
+  let src = env.config.predefs
+  res <- liftIO $ fst <$> Interpreter.run (browse src) env.config.{predefs=""} env.state
+  Repl.put env
+  let wanted sym = sym.name.base !~ '^frege_interpreter_var'
+  return $ maybe (ReplInfo []) (\(syms, g) -> symbolsToReplInfo g . filter wanted $ syms) res
 
 eval (HelpDoc name) = do
   env <- Repl.get
-  let res = fst $ Interpreter.run (docHelp name) env.config env.state
+  res <- liftIO $ fst <$> Interpreter.run (docHelp name) env.config env.state
   return $ either ReplInfo DocHelp res
 
 eval Java = do
   env <- Repl.get
-  let javagenDefs [] = return (ReplInfo [Message.info "Empty source!"])
+  let javagenDefs "" = return (ReplInfo [Message.info "Empty source!"])
       javagenDefs defs = do
         oldEnv <- Repl.get
-        Repl.modify ReplEnv.{config <- InterpreterConfig.{predefs=[]}}
-        res <- java (unlines $ reverse defs)
+        Repl.modify ReplEnv.{config <- InterpreterConfig.{predefs=""}}
+        res <- java defs
         Repl.put oldEnv
         return res
   maybe (javagenDefs env.config.predefs) (\src -> java src) env.lastJavaGenSrc
+
+eval (Set s) | Just (Just prompt : _) <- s `match` 'multiline-prompt\s+(.+)' =
+  do
+    Repl.modify ReplEnv.{opts <- ReplOpts.{multilinePrompt = prompt}}
+    return $ ReplInfo []
+
+eval (Set s) | Just (Just prompt : _) <- s `match` 'prompt\s+(.+)' =
+  do
+    Repl.modify ReplEnv.{opts <- ReplOpts.{prompt = prompt}}
+    return $ ReplInfo []
 
 eval (Set "v") = parseAndSetCompilerFlag "-v"
 eval (Set "hints") = parseAndSetCompilerFlag "-hints"
@@ -215,9 +251,12 @@ eval (Unset unknown) = return $ ReplInfo [Message.error ("Invalid option: " ++ u
 
 eval History = do
   env <- Repl.get
-  return $ ReplInfo . map Message.info . reverse $ env.config.predefs
+  let change acc item = if item ~ separator then acc ++ "\n--frege>\n" else acc ++ item ++ "\n"
+      separator = '^frege_interpreter_var'
+  return $ ReplInfo [Message.info $ fold change "" . lines $ env.config.predefs]
 
-eval Reset = Repl.put ReplEnv.default >> return (ReplInfo [])
+eval Reset = ReplEnv.reset >> return (ReplInfo [])
+
 eval Version = return $ ReplInfo [Message.info version]
 eval Help = return $ ReplInfo [Message.info (help cmdHelp)]
 eval _ = return $ ReplInfo []
@@ -238,7 +277,7 @@ setCompilerFlag flag = do
   Repl.modify ReplEnv.{config <- InterpreterConfig.{compilerFlags <- (\flags -> Flags.setFlag flags flag)}}
   return $ ReplInfo []
 
-symbolsToReplInfo syms g = ReplInfo $ map (Message.info . showSymbol g) wantedSyms where
+symbolsToReplInfo g syms = ReplInfo $ map (Message.info . showSymbol g) wantedSyms where
   wantedSyms = filter wanted syms
   wanted (sym :: Symbol)
     | sym.{alias?} = false
@@ -246,7 +285,7 @@ symbolsToReplInfo syms g = ReplInfo $ map (Message.info . showSymbol g) wantedSy
 
 java src = do
     env <- Repl.get
-    let res = fst $ Interpreter.run (javaSource src) env.config env.state
+    res <- liftIO $ fst <$> Interpreter.run (javaSource src) env.config env.state
     return $ either ReplInfo JavaSource res
 
 slurp :: String -> IO (Message | Command)
@@ -271,10 +310,10 @@ printSymbolType console g sym = do
                         console.write ":: "
                         console.writeln (getSymbolType g sym)
 
-readMultiline :: ReplIO a => a -> IO String
-readMultiline console = intercalate newLine . reverse <$> f [] where
+readMultiline :: ReplIO a => a -> String -> IO String
+readMultiline console multilinePrompt = intercalate newLine . reverse <$> f [] where
   f acc = do
-    lineMaybe <- console.readline
+    lineMaybe <- console.readline multilinePrompt
     let line = maybe ":}" id lineMaybe
     if (line == ":}")
       then console.writeln "" >> return acc
@@ -292,6 +331,11 @@ cmdHelp = [(":t or :type <expression>", "Display the type of an expression."),
             (":version", "Display Frege version."),
             (":{", "Start multiline definitions."),
             (":}", "End multiline definitions."),
+            (":set prompt promptString", "Set prompt to `promptString`."),
+            (":set multiline-prompt promptString", "Set prompt for multi-line mode."),
+            (":set compilerOption", "Set compiler option such as 'hints', 'nowarn', 'inline', 'O', 'comments',"
+                                      ++ "'ascii', 'greek', 'fraktur', 'latin'."),
+            (":unset compilerOption", "Unset compiler option."),
             (":help <name>", "Display the documentation for the given name." ++
                             " If the name is not provided, display this help message."),
             (":q or :quit", "Quit REPL")]
@@ -467,20 +511,20 @@ welcome = "Welcome to Frege " ++ version ++ " (" ++ vmVendor ++ " " ++ vmName ++
     ", " ++ javaVersion ++ ")"
 
 class ReplIO a where
-  readline :: a -> IO (Maybe String)
+  readline :: a -> String -> IO (Maybe String)
   write :: a -> String -> IO ()
   writeln :: a -> String -> IO ()
   interpretSym :: a -> Global -> Symbol -> ReplEnv -> IO ()
 
 instance ReplIO ConsoleReader where
-  readline console = try ConsoleReader.readLine console `catch` (\(ioe :: IOException) -> return Nothing)
+  readline console prompt = try ConsoleReader.readLine console prompt `catch` (\(ioe :: IOException) -> return Nothing)
   write console s = try (flip ConsoleReader.print (CharSequence.fromString s)) console
                       `catch` (\(ioe :: IOException) -> return ())
   writeln console s = try (flip ConsoleReader.println s) console
                         `catch` (\(ioe :: IOException) -> return ())
   interpretSym console g sym env =
     do
-      valMaybe <- fieldValue (symbolClass sym g) (symbolVar sym g) env.state.classLoader
+      valMaybe <- fieldValue (symbolClass sym g) (symbolVar sym g) env.state
       console.writeln $ maybe "undefined" id valMaybe
     `catch` (console.writeln . showThrowableCause)
 
@@ -488,9 +532,9 @@ instance ReplIO ConsoleReader where
 data ReaderWriterConsole = ReaderWriterConsole {input :: BufferedReader, output :: PrintWriter}
 
 instance ReplIO ReaderWriterConsole where
-  readline console = try f console `catch` (\(ioe :: IOException) -> return Nothing) where
+  readline console prompt = try f console `catch` (\(ioe :: IOException) -> return Nothing) where
     f console = do
-     console.write "frege> "
+     console.write prompt
      console.output.flush
      line <- console.input.getLine
      return $ Just line
@@ -500,30 +544,9 @@ instance ReplIO ReaderWriterConsole where
                       `catch` (\(ioe :: IOException) -> return ())
   interpretSym console g sym env =
     do
-      valMaybe <- fieldValue (symbolClass sym g) (symbolVar sym g) env.state.classLoader
+      valMaybe <- fieldValue (symbolClass sym g) (symbolVar sym g) env.state
       console.writeln $ maybe "undefined" id valMaybe
     `catch` (console.writeln . showThrowableCause)
-
-interpreterPreludeImport = ImpDcl {pos=Position.null, pack="frege.repl.PreludeRepl", as=Nothing, imports = linkAll}
-
-preludeHidingImport = ImpDcl {
-  pos = Position.null,
-  pack = "frege.Prelude",
-  as = Nothing,
-  imports = Imports {
-              publik = false,
-              except = true,
-              items = [
-                fnImport "getLine", fnImport "getChar", fnImport "getContents"
-              ]
-            }
-} where
-  fnImport name = Item {publik = false, name = fn name, members = Nothing, alias=""}
-  fn name = Simple {id = Token VARID name 1 0 0 []}
-
-transformDefs defs = do
-  uniqdefs <- removeDuplicateDefs defs
-  return (interpreterPreludeImport : preludeHidingImport : uniqdefs)
 
 readResourceAsString :: String -> IO String
 readResourceAsString fileName = do
@@ -534,9 +557,20 @@ readResourceAsString fileName = do
 
 native getResourceAsStream :: ClassLoader -> String -> IO InputStream
 
+pure native containsStr contains :: String -> String -> Bool
+
+warmup = do
+  env <- ReplEnv.default
+  (res, newState) <- Interpreter.run (interpret "show [1..10]") env.config env.state
+  case res of
+    InterpreterResult.Success{sourceRepr=(Expression sym), compilerState=g} -> fieldValue (symbolClass sym g) (symbolVar sym g) newState
+    _ -> return $ Just "ignore"
+  return ()
+
 main ("-terminal": "jline": otherOpts) = do
   console <- ConsoleReader.new "frege" sysin System.out Nothing "UTF-8"
-  let env = ReplEnv.default
+  Runnable.new warmup >>= Thread.new >>= Thread.start
+  env <- ReplEnv.default
   console.setPrompt env.opts.prompt
   console.setExpandEvents false
   console.println welcome
@@ -548,6 +582,5 @@ main ("-terminal": invalidTerminal: otherOpts) = stderr.println $ "Invalid value
 main _ = do
   let console = ReaderWriterConsole stdin stdout
   console.writeln welcome
-  repl console ReplEnv.default
+  ReplEnv.default >>= repl console
   System.exit 0
-

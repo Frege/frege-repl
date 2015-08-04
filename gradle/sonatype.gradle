@@ -6,6 +6,8 @@ ext {
     sonatypeRepositoryUrl = "$sonatypeBaseUrl/content/groups/public"
     sonatypeReleaseUrl = "$sonatypeBaseUrl/service/local/staging/deploy/maven2/"
     sonatypeUploadUrl = isSnapshot ? sonatypeSnapshotUrl : sonatypeReleaseUrl
+    sonatypeUsername = hasProperty('sonatypeUsername') ? sonatypeUsername : System.getenv('sonatypeUsername')
+    sonatypePassword = hasProperty('sonatypePassword') ? sonatypePassword : System.getenv('sonatypePassword')
 
     projectUrl ="https://github.com/Frege/frege-repl"
     projectName = "Frege Repl"

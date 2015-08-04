@@ -1,6 +1,6 @@
 #!/bin/bash
 
-./gradlew uploadArchives -PsonatypeUsername="${SONATYPE_USERNAME}" -PsonatypePassword="${SONATYPE_PASSWORD}" -i -s
+./gradlew uploadArchives -DsonatypeUsername="${SONATYPE_USERNAME}" -DsonatypePassword="${SONATYPE_PASSWORD}" -i -s
 RETVAL=$?
 
 if [ $RETVAL -eq 0 ]; then
