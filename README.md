@@ -67,11 +67,9 @@ In addition to Frege code, the following commands are supported:
 
 ##Build from sources##
 
-1. ```~/workspace$ git clone https://github.com/Frege/frege-interpreter.git```
-2. ```~/workspace/frege-interpreter$ mvn install```
-3. ```~/workspace$ git clone https://github.com/Frege/frege-repl.git```
-4. ```~/workspace/frege-repl$ mvn install```
-5. To run, ```~/workspace/frege-repl$ frege-repl-core/target/frepl/bin/frepl```
+1. ```~/workspace$ git clone https://github.com/Frege/frege-repl.git```
+2. ```~/workspace/frege-repl$ ./gradlew install```
+3. To run, ```~/workspace/frege-repl$ ./gradlew --console plain :frege-repl-core:run```
    
 ## Continuous Integration
 
