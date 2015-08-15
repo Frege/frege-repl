@@ -301,12 +301,10 @@ slurp filePath = do
 
 printMessages :: ReplIO a => a -> [Message] -> IO ()
 printMessages console [] = return ()
-printMessages console msgs = console.writeln $ Message.showMessages msgs
+printMessages console msgs = mapM_ (console.writeln . show) msgs
 
 printSymbolType :: ReplIO a => a -> Global -> Symbol -> IO ()
-printSymbolType console g sym = do
-                        console.write ":: "
-                        console.writeln (getSymbolType g sym)
+printSymbolType console g sym = console.writeln (getSymbolType g sym)
 
 readMultiline :: ReplIO a => a -> String -> IO String
 readMultiline console multilinePrompt = intercalate newLine . reverse <$> f [] where
@@ -519,7 +517,7 @@ instance ReplIO ConsoleReader where
   write console s = try (flip ConsoleReader.print (CharSequence.fromString s)) console
                       `catch` (\(ioe :: IOException) -> return ())
   writeln console s = try (flip ConsoleReader.println s) console
-                        `catch` (\(ioe :: IOException) -> return ())
+                        `catch` (\(ioe :: IOException) -> println ioe.getMessage)
   interpretSym console g sym env =
     do
       valMaybe <- fieldValue (symbolClass sym g) (symbolVar sym g) env.state
