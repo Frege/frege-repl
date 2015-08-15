@@ -62,14 +62,13 @@ In addition to Frege code, the following commands are supported:
 1. Download Frege REPL archive from [releases](https://github.com/Frege/frege-repl/releases).
 2. Extract the archive
 3. Run the following command: (JRE 7 or above required) <BR/>
-   * `$ frepl/bin/frepl` or 
-   * `$ frepl/bin/freplj` - JLine enabled REPL for command line history and navigation (might have problems with unicode characters in Windows)
+   * `$ fregei-1.2.1-SNAPSHOT/bin/fregei`
 
 ##Build from sources##
 
 1. ```~/workspace$ git clone https://github.com/Frege/frege-repl.git```
 2. ```~/workspace/frege-repl$ ./gradlew install```
-3. To run, ```~/workspace/frege-repl$ ./gradlew --console plain :frege-repl-core:run```
+3. To run, ```~/workspace/frege-repl$ ./gradlew --console plain :frege-repl-core:run```. If you are using Gradle daemon, please make sure to add `--no-daemon`.
    
 ## Continuous Integration
 
