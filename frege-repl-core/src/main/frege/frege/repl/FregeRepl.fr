@@ -9,11 +9,6 @@ import Compiler.enums.Flags
 import Compiler.types.Global hiding (Message, Severity)
 import Compiler.types.Global (Message CompilerMessage, Severity())
 import Compiler.types.Positions
-import Compiler.types.SourceDefinitions
-import Compiler.enums.TokenID
-import Compiler.types.SNames
-import Compiler.types.ImportDetails
-import Compiler.types.Tokens
 import Java.Swing
 import Java.Awt (Component, ActionListener)
 import Java.Util (Scanner, ArrayList, Collection)
@@ -130,7 +125,10 @@ print console (cmd@(Eval line)) (CodeInfo sourceRepr g msgs) env = case sourceRe
         (res, newEnv) <- Repl.run evalShow env
         case res of
           CodeInfo{} -> print console cmd res newEnv
-          _ -> printSymbolType console g sym
+          _ -> do
+                  let typeCmd = Type line
+                  (res, newEnv) <- Repl.run (eval typeCmd) env
+                  print console typeCmd res newEnv
   Expression sym = printSymbolType console g sym
   Definitions syms markerSym = do
     let symLabels = map (showSymbol g) $ filter (not . Symbol.{alias?}) newSyms
@@ -567,7 +565,7 @@ warmup = do
     _ -> return $ Just "ignore"
   return ()
 
-main ("-terminal": "jline": otherOpts) = do
+main = do
   console <- ConsoleReader.new "frege" sysin System.out Nothing "UTF-8"
   Runnable.new warmup >>= Thread.new >>= Thread.start
   env <- ReplEnv.default
@@ -577,10 +575,3 @@ main ("-terminal": "jline": otherOpts) = do
   repl console env
   System.exit 0
 
-main ("-terminal": invalidTerminal: otherOpts) = stderr.println $ "Invalid value for terminal: " ++ invalidTerminal
-
-main _ = do
-  let console = ReaderWriterConsole stdin stdout
-  console.writeln welcome
-  ReplEnv.default >>= repl console
-  System.exit 0
