@@ -13,10 +13,16 @@ compileFrege {
     inline = false
 }
 
+run{
+    standardInput = System.in
+    standardOutput = System.out
+    if (hasProperty("args"))
+        args project.args.split()
+}
 
 dependencies {
     compile project(":frege-repl-nativedeps")
-    compile "jline:jline:2.12"
+    compile "jline:jline:2.13"
     compile "org.frege-lang:frege-interpreter-core:$fregeInterpreterVersion"
 
     testCompile "junit:junit:4.11"
