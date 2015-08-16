@@ -23,6 +23,7 @@ data ReplEnv = ReplEnv
     , lastExternalScript :: Maybe String
     , opts :: ReplOpts
     , config :: InterpreterConfig
+    , lineStart :: Int
     , state :: MutableIO InterpreterClassLoader
     }
   where
@@ -33,6 +34,7 @@ data ReplEnv = ReplEnv
         , lastExternalScript = Nothing -- To reload last external script
         , opts = ReplOpts.default
         , config = InterpreterConfig.default
+        , lineStart = 2
         , state = loader
         }
 
@@ -71,7 +73,6 @@ instance Monad Repl where
 
 instance MonadIO Repl where
   liftIO = Repl . liftIO
-
 
 data ReplResult = ReplInfo [Message]
                 | CodeInfo {
@@ -130,12 +131,10 @@ print console (cmd@(Eval line)) (CodeInfo sourceRepr g msgs) env = case sourceRe
                   (res, newEnv) <- Repl.run (eval typeCmd) env
                   print console typeCmd res newEnv
   Expression sym = printSymbolType console g sym
-  Definitions syms markerSym = do
-    let symLabels = map (showSymbol g) $ filter (not . Symbol.{alias?}) newSyms
-        newSyms = filter (\sym -> sym.pos.line > lineStart) syms
-        lineStart = markerSym.pos.line
-    when (not $ null symLabels) $ console.writeln $ intercalate newLine symLabels
-    printMessages console (filter (\msg -> msg.pos.line > lineStart) msgs)
+  Definitions syms = do
+    let symLabels = map (showSymbol g) syms
+    when (not $ null symLabels) $ mapM_ console.writeln symLabels
+    printMessages console msgs
   Module moduleName = do
     console.writeln $ "Module " ++ moduleName
     printMessages console msgs
@@ -150,6 +149,7 @@ loop console _ _ env = repl console env
 eval :: Command -> Repl ReplResult
 eval (Eval line) = do
   env <- Repl.get
+  let wanted (msg :: Message) = msg.pos.line >= env.lineStart
   (res, newState) <- liftIO $ Interpreter.run (interpret line) env.config env.state
   case res of
     InterpreterResult.Success{sourceRepr=sourceRepr, compilerState=g} -> do
@@ -161,16 +161,22 @@ eval (Eval line) = do
           newEnv <- Repl.get
           let updatePredefs predefs = predefs ++ "\n" ++ importModuleStmt
           when (not $ containsStr newEnv.config.predefs importModuleStmt) $
-            Repl.modify ReplEnv.{config <- InterpreterConfig.{predefs<-updatePredefs}}
-        Definitions syms separatorSym -> do
-          let varName = separatorSym.name.base
-              separator = varName ++ " = 0"
-              updatePredefs predefs = predefs ++ "\n" ++ separator ++ "\n" ++ line
-          Repl.modify ReplEnv.{lastJavaGenSrc=Nothing, config <- InterpreterConfig.{predefs<-updatePredefs}}
-        Expression{} -> do
+            Repl.modify ReplEnv.{config <- InterpreterConfig.{predefs<-updatePredefs},
+                                 lineStart <- succ}
+          return $ CodeInfo sourceRepr g (filter wanted $ Message.fromGlobal g)
+        Definitions syms -> do
+          let updatePredefs predefs | null predefs = line
+              updatePredefs predefs = predefs ++ "\n" ++ line
+              newSyms = filter (\sym -> sym.pos.line >= env.lineStart) syms
+          Repl.modify ReplEnv.{
+            lastJavaGenSrc = Nothing,
+            lineStart <- ((+) (length . lines $ line)),
+            config <- InterpreterConfig.{predefs <- updatePredefs}}
+          return $ CodeInfo (Definitions newSyms) g (filter wanted $ Message.fromGlobal g)
+        Expression {} -> do
           Repl.modify ReplEnv.{lastJavaGenSrc=Just line, state = newState}
-      return $ CodeInfo sourceRepr g (Message.fromGlobal g)
-    InterpreterResult.Failure messages -> return $ ReplInfo messages
+          return $ CodeInfo sourceRepr g (filter wanted $ Message.fromGlobal g)
+    InterpreterResult.Failure messages -> return $ ReplInfo $ filter wanted messages
 
 eval (Type expr) = do
   env <- Repl.get
@@ -256,7 +262,7 @@ eval History = do
 eval Reset = ReplEnv.reset >> return (ReplInfo [])
 
 eval Version = return $ ReplInfo [Message.info version]
-eval Help = return $ ReplInfo [Message.info (help cmdHelp)]
+eval Help = return $ ReplInfo (fmap Message.info (help cmdHelp))
 eval _ = return $ ReplInfo []
 
 parseAndSetCompilerFlag flag = do
@@ -275,11 +281,7 @@ setCompilerFlag flag = do
   Repl.modify ReplEnv.{config <- InterpreterConfig.{compilerFlags <- (\flags -> Flags.setFlag flags flag)}}
   return $ ReplInfo []
 
-symbolsToReplInfo g syms = ReplInfo $ map (Message.info . showSymbol g) wantedSyms where
-  wantedSyms = filter wanted syms
-  wanted (sym :: Symbol)
-    | sym.{alias?} = false
-    | otherwise = true
+symbolsToReplInfo g syms = ReplInfo $ map (Message.info . showSymbol g) syms
 
 java src = do
     env <- Repl.get
@@ -342,30 +344,11 @@ renderCmdHelp cmdHelp = map render cmdHelp where
         " - " ++ desc
     render (cmd, desc) = indent cmd desc maxLeftIndent
 
-help cmdHelp = intercalate newLine $ header ++ body where
+help cmdHelp = header ++ body where
     header = ["At the prompt, you can enter Frege code snippets to get them evaluated.",
             "The output or compilation errors will be printed below the prompt.",
             "In addition to Frege code, the following commands are supported:\n"]
     body = renderCmdHelp cmdHelp
-
-data ConsoleReader = mutable native jline.console.ConsoleReader where
-  native new :: () -> IO ConsoleReader throws IOException
-              | String
-                -> InputStream
-                -> OutputStream
-                -> Maybe Terminal
-                -> String
-                -> IO ConsoleReader
-                throws IOException
-
-  native readLine :: ConsoleReader -> String -> IO (Maybe String) throws IOException
-                   | ConsoleReader -> IO (Maybe String) throws IOException
-  native println :: ConsoleReader -> String -> IO () throws IOException
-  native print :: ConsoleReader -> CharSequence -> IO () throws IOException
-  native setPrompt :: ConsoleReader -> String -> IO ()
-  native setExpandEvents :: ConsoleReader -> Bool -> IO ()
-
-data Terminal = mutable native jline.Terminal
 
 urlContents url = do
     inStream <- URL.openStream url
@@ -512,12 +495,33 @@ class ReplIO a where
   writeln :: a -> String -> IO ()
   interpretSym :: a -> Global -> Symbol -> ReplEnv -> IO ()
 
+data ConsoleReader = mutable native jline.console.ConsoleReader where
+  native new :: () -> IO ConsoleReader throws IOException
+              | String
+                -> InputStream
+                -> OutputStream
+                -> Maybe Terminal
+                -> String
+                -> IO ConsoleReader
+                throws IOException
+
+  native readLine :: ConsoleReader -> String -> IO (Maybe String) throws IOException
+                   | ConsoleReader -> IO (Maybe String) throws IOException
+  native println :: ConsoleReader -> CharSequence -> IO () throws IOException
+  native print :: ConsoleReader -> CharSequence -> IO () throws IOException
+  native setPrompt :: ConsoleReader -> String -> IO ()
+  native setExpandEvents :: ConsoleReader -> Bool -> IO ()
+
+data Terminal = mutable native jline.Terminal
+
 instance ReplIO ConsoleReader where
   readline console prompt = try ConsoleReader.readLine console prompt `catch` (\(ioe :: IOException) -> return Nothing)
   write console s = try (flip ConsoleReader.print (CharSequence.fromString s)) console
                       `catch` (\(ioe :: IOException) -> return ())
-  writeln console s = try (flip ConsoleReader.println s) console
+  writeln console s = try (jPrint s) console
                         `catch` (\(ioe :: IOException) -> println ioe.getMessage)
+                     where
+                       jPrint s console = mapM_ (console.println . CharSequence.fromString) $ toList $ split s "\\n"
   interpretSym console g sym env =
     do
       valMaybe <- fieldValue (symbolClass sym g) (symbolVar sym g) env.state
@@ -568,8 +572,6 @@ main = do
   Runnable.new warmup >>= Thread.new >>= Thread.start
   env <- ReplEnv.default
   console.setPrompt env.opts.prompt
-  console.setExpandEvents false
-  console.println welcome
+  console.println $ CharSequence.fromString welcome
   repl console env
   System.exit 0
-
