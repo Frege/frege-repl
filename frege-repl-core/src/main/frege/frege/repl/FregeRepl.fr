@@ -572,6 +572,7 @@ main = do
   Runnable.new warmup >>= Thread.new >>= Thread.start
   env <- ReplEnv.default
   console.setPrompt env.opts.prompt
+  console.setExpandEvents false
   console.println $ CharSequence.fromString welcome
   repl console env
   System.exit 0
