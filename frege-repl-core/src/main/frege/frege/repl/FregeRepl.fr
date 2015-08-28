@@ -38,24 +38,19 @@ data ReplEnv = ReplEnv
         , state = loader
         }
 
-    reset = do
-      loader <- liftIO $ InterpreterClassLoader.new ()
-      Repl.modify ReplEnv.{
-                            state = loader
-                          , lastExternalScript = Nothing
-                          , lastJavaGenSrc = Nothing
-                          , config <- InterpreterConfig.{predefs = ""}
-                          }
+    reset = liftIO ReplEnv.default >>= Repl.put
 
 
 data ReplOpts = ReplOpts
     { prompt :: String
     , multilinePrompt :: String
+    , showLimit :: Int
     }
   where
     default = ReplOpts
       { prompt = "frege> "
       , multilinePrompt = "> "
+      , showLimit = 80
       }
 
 data Repl a = Repl {un :: StateT ReplEnv IO a} where
@@ -122,7 +117,7 @@ print console (cmd@(Eval line)) (CodeInfo sourceRepr g msgs) env = case sourceRe
                             updatePredefs predefs = predefs ++ "\n" ++ varDecl
                         when (line /= sym.name.base) $
                           Repl.modify ReplEnv.{config <- InterpreterConfig.{predefs <- updatePredefs}}
-                        eval (Eval $ buildShowScript sym.name.base g sym)
+                        eval (Eval $ buildShowScript sym.name.base env.opts.showLimit g sym)
         (res, newEnv) <- Repl.run evalShow env
         case res of
           CodeInfo{} -> print console cmd res newEnv
@@ -229,6 +224,14 @@ eval (Set s) | Just (Just prompt : _) <- s `match` 'prompt\s+(.+)' =
     Repl.modify ReplEnv.{opts <- ReplOpts.{prompt = prompt}}
     return $ ReplInfo []
 
+eval (Set s) | Just (Just limitStr : _) <- s `match` 'show-limit\s+(.+)' =
+  do
+    let updateOpts limit | limit <= 0 = return errInfo
+                         | otherwise = Repl.modify ReplEnv.{opts <- ReplOpts.{showLimit = limit}} >> return (ReplInfo [])
+        invalidNumber e = return errInfo
+        errInfo = ReplInfo [Message.error "show-limit value must be a positive integer."]
+    either invalidNumber updateOpts limitStr.int
+
 eval (Set "v") = parseAndSetCompilerFlag "-v"
 eval (Set "hints") = parseAndSetCompilerFlag "-hints"
 eval (Set "nowarn") = parseAndSetCompilerFlag "-nowarn"
@@ -331,7 +334,8 @@ cmdHelp = [(":t or :type <expression>", "Display the type of an expression."),
             (":}", "End multiline definitions."),
             (":set prompt promptString", "Set prompt to `promptString`."),
             (":set multiline-prompt promptString", "Set prompt for multi-line mode."),
-            (":set compilerOption", "Set compiler option such as 'hints', 'nowarn', 'inline', 'O', 'comments',"
+            (":set show-limit <limit>", "Set number of characters to show in the output string (Default: 80)."),
+            (":set compilerOption", "Set compiler options such as 'hints', 'nowarn', 'inline', 'O', 'comments',"
                                       ++ "'ascii', 'greek', 'fraktur', 'latin'."),
             (":unset compilerOption", "Unset compiler option."),
             (":help <name>", "Display the documentation for the given name." ++
