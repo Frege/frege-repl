@@ -1,4 +1,5 @@
 
+apply plugin: "org.frege-lang"
 apply plugin: "application"
 
 tasks.compileFrege.dependsOn "compileJava"
@@ -13,7 +14,11 @@ compileFrege {
     inline = false
 }
 
-run{
+compileTestFrege {
+    enabled = false
+}
+
+run {
     standardInput = System.in
     standardOutput = System.out
     if (hasProperty("args"))
