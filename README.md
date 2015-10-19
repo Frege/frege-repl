@@ -60,19 +60,19 @@ In addition to Frege code, the following commands are supported:
 
 ##How to run?##
 1. Download Frege REPL archive from [releases](https://github.com/Frege/frege-repl/releases).
-2. Extract the archive
-3. Run the following command: (JRE 7 or above required) <BR/>
-   * `$ fregei-1.2.1-SNAPSHOT/bin/fregei`
+1. Extract the archive
+1. Run the following command: (JRE 7 or above required)
+   * `$ frege-repl-<version>/bin/frege-repl`
 
 ##Build from sources##
 
 1. ```~/workspace$ git clone https://github.com/Frege/frege-repl.git```
-2. ```~/workspace/frege-repl$ ./gradlew install```
-3. To run, ```~/workspace/frege-repl$ ./gradlew --console plain :frege-repl-core:run```. If you are using Gradle daemon, please make sure to add `--no-daemon`.
+1. ```~/workspace/frege-repl$ ./gradlew install```
+1. To run, ```~/workspace/frege-repl$ ./gradlew --no-daemon --console plain :frege-repl-core:run```.
    
 ## Continuous Integration
 
-Travis: https://travis-ci.org/Frege/frege-repl/
+[Travis](https://travis-ci.org/Frege/frege-repl/)
 
-Sonatype: https://oss.sonatype.org/content/groups/public/org/frege-lang/
+[Sonatype](https://oss.sonatype.org/content/groups/public/org/frege-lang/)
 

@@ -3,7 +3,7 @@ apply plugin: "org.frege-lang"
 apply plugin: "application"
 
 mainClassName = "frege.repl.FregeRepl"
-applicationName = "fregei"
+applicationName = "frege-repl"
 
 compileTestFrege {
     enabled = false
