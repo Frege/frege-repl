@@ -35,7 +35,10 @@ subprojects {
         snapshotAppendix = "-SNAPSHOT"
         projectVersion = baseVersion + (isSnapshot ? snapshotAppendix : "")
 
-        fregeInterpreterVersion = "1.2"
+        fregeBaseVersion = "3.23.370"
+        fregeClassifier = "-g898bc8c"
+        fregeVersion = "$fregeBaseVersion$fregeClassifier"
+        fregeInterpreterVersion = "1.3-SNAPSHOT"
     }
 
     apply from: "$rootDir/gradle/sonatype.gradle"
@@ -56,6 +59,7 @@ subprojects {
     }
 
     dependencies {
+        compile files("$project.rootDir/lib/frege-${fregeVersion}.jar")
         compile "org.frege-lang:frege-interpreter-core:$fregeInterpreterVersion"
     }
 
