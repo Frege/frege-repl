@@ -229,7 +229,7 @@ eval (Set s) | Just (Just limitStr : _) <- s `match` 'show-limit\s+(.+)' =
     let updateOpts limit | limit <= 0 = return errInfo
                          | otherwise = Repl.modify ReplEnv.{opts <- ReplOpts.{showLimit = limit}} >> return (ReplInfo [])
         invalidNumber e = return errInfo
-        errInfo = ReplInfo [Message.error "show-limit value must be a positive integer."]
+        errInfo = ReplInfo [Message.error $ "show-limit value must be a positive integer below " ++ show (maxBound :: Int)]
     either invalidNumber updateOpts limitStr.int
 
 eval (Set "v") = parseAndSetCompilerFlag "-v"
