@@ -144,7 +144,7 @@ loop console _ _ env = repl console env
 eval :: Command -> Repl ReplResult
 eval (Eval line) = do
   env <- Repl.get
-  let wanted (msg :: Message) = msg.pos.line >= env.lineStart
+  let wanted (msg :: Message) = msg.pos.line >= env.lineStart || msg.text ~ 'Native error'
   (res, newState) <- liftIO $ Interpreter.run (interpret line) env.config env.state
   case res of
     InterpreterResult.Success{sourceRepr=sourceRepr, compilerState=g} -> do
