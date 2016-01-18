@@ -3,6 +3,7 @@ apply plugin: "org.frege-lang"
 apply plugin: "application"
 
 mainClassName = "frege.repl.FregeRepl"
+
 applicationName = "frege-repl"
 
 compileTestFrege {
@@ -15,10 +16,12 @@ run {
     if (hasProperty("args")) {
         args project.args.split()
     }
+
 }
 
 dependencies {
     compile project(":frege-repl-nativedeps")
     compile "jline:jline:2.13"
     compile "org.frege-lang:frege-interpreter-core:$fregeInterpreterVersion"
+    compile "com.google.guava:guava:$guavaVersion"
 }

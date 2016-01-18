@@ -1,10 +1,10 @@
 module frege.repl.GraphicRepl where
 
-import Repl.FregeRepl
+import Repl.FregeRepl hiding (print)
 import Control.Concurrent as C
 import Interpreter.FregeInterpreter
 import Java.Util (Scanner, ArrayList, Collection)
-import Java.Swing
+import Java.Swing hiding (JTextComponent, JComponent, JPanel)
 import Java.Awt (Component, ActionListener)
 import Repl.Gui
 

@@ -2,14 +2,15 @@ module frege.repl.FregeRepl where
 
 import frege.Version
 import Java.Net
+import Java.Util (List, Iterator)
 import Data.List
 import Interpreter.FregeInterpreter
 import Compiler.common.CompilerOptions (flagtree)
 import Compiler.enums.Flags
-import Compiler.types.Global hiding (Message, Severity)
+import Compiler.types.Global hiding (Message, Severity, liftIO)
 import Compiler.types.Global (Message CompilerMessage, Severity())
 import Compiler.types.Positions
-import Java.Swing
+import Java.Swing hiding (JPanel, JComponent, JTextComponent, JPanel)
 import Java.Awt (Component, ActionListener)
 import Java.Util (Scanner, ArrayList, Collection)
 import frege.Prelude hiding (print)
@@ -127,8 +128,8 @@ print console (cmd@(Eval line)) (CodeInfo sourceRepr g msgs) env = case sourceRe
                   print console typeCmd res newEnv
   Expression sym = printSymbolType console g sym
   Definitions syms = do
-    let symLabels = map (showSymbol g) syms
-    when (not $ null symLabels) $ mapM_ console.writeln symLabels
+    let labels = symLabels g syms
+    when (not . null $ labels) $ mapM_ console.writeln labels
     printMessages console msgs
   Module moduleName = do
     console.writeln $ "Module " ++ moduleName
@@ -187,16 +188,14 @@ eval (LoadExternal src script) = do
 eval (BrowseModule moduleName) = do
   env <- Repl.get
   res <- liftIO $ fst <$> Interpreter.run (browseModule moduleName) env.config env.state
-  let wanted sym = sym.name.base !~ '^frege_interpreter_var'
-  return $ maybe (ReplInfo []) (\(syms, g) -> symbolsToReplInfo g . filter wanted $ syms) res
+  return $ maybe (ReplInfo []) (\(moduleDoc, syms, g) -> toReplInfo g moduleDoc moduleName . filter wantedSym $ syms) res
 
 eval Browse = do
   env <- Repl.get
   let src = env.config.predefs
   res <- liftIO $ fst <$> Interpreter.run (browse src) env.config.{predefs=""} env.state
   Repl.put env
-  let wanted sym = sym.name.base !~ '^frege_interpreter_var'
-  return $ maybe (ReplInfo []) (\(syms, g) -> symbolsToReplInfo g . filter wanted $ syms) res
+  return $ maybe (ReplInfo []) (\(syms, g) -> symbolsToReplInfo g . filter wantedSym $ syms) res
 
 eval (HelpDoc name) = do
   env <- Repl.get
@@ -268,6 +267,10 @@ eval Version = return $ ReplInfo [Message.info version]
 eval Help = return $ ReplInfo (fmap Message.info (help cmdHelp))
 eval _ = return $ ReplInfo []
 
+toReplInfo g moduleDoc moduleName syms = ReplInfo . map Message.info $ doc where
+  symDocs =  symLabels g syms
+  doc = ("\n\n" ++ prefixCommentChars moduleDoc): ("module " ++ moduleName): symDocs
+
 parseAndSetCompilerFlag flag = do
   env <- Repl.get
   case flagtree.lookup flag of
@@ -284,7 +287,12 @@ setCompilerFlag flag = do
   Repl.modify ReplEnv.{config <- InterpreterConfig.{compilerFlags <- (\flags -> Flags.setFlag flags flag)}}
   return $ ReplInfo []
 
-symbolsToReplInfo g syms = ReplInfo $ map (Message.info . showSymbol g) syms
+wantedSym :: Symbol -> Bool
+wantedSym sym = sym.name.base !~ '^frege_interpreter_var'
+
+symbolsToReplInfo g = ReplInfo . map (Message.info) . symLabels g
+
+symLabels g = map (\s -> show s ++ "\n") . sortBy (comparing _.name) . map (label g)
 
 java src = do
     env <- Repl.get
@@ -324,20 +332,20 @@ readMultiline console multilinePrompt = intercalate newLine . reverse <$> f [] w
 cmdHelp = [(":t or :type <expression>", "Display the type of an expression."),
             (":browse <module name>", "Display the names in a module if " ++
                 "a module name is provided otherwise display the names in the default REPL module."),
-            (":load <url or file>", "Load Frege code snippets from an URL or file."),
             (":java", "View Java translation of last compiled Frege source."),
+            (":load <url or file>", "Load Frege code snippets from an URL or file."),
             (":r", "Reload the last url or file source."),
-            (":history", "Display the source history for definitions in the default REPL module."),
-            (":reset", "Reset the session discarding all evaluated scripts."),
-            (":version", "Display Frege version."),
-            (":{", "Start multiline definitions."),
-            (":}", "End multiline definitions."),
             (":set prompt promptString", "Set prompt to `promptString`."),
             (":set multiline-prompt promptString", "Set prompt for multi-line mode."),
             (":set show-limit <limit>", "Set number of characters to show in the output string (Default: 80)."),
             (":set compilerOption", "Set compiler options such as 'hints', 'nowarn', 'inline', 'O', 'comments',"
                                       ++ "'ascii', 'greek', 'fraktur', 'latin'."),
             (":unset compilerOption", "Unset compiler option."),
+            (":history", "Display the source history for definitions in the default REPL module."),
+            (":reset", "Reset the session discarding all evaluated scripts."),
+            (":version", "Display Frege version."),
+            (":{", "Start multiline definitions."),
+            (":}", "End multiline definitions."),
             (":help <name>", "Display the documentation for the given name." ++
                             " If the name is not provided, display this help message."),
             (":q or :quit", "Quit REPL")]
@@ -487,7 +495,6 @@ vmName = maybe "" id $ System.getProperty "java.vm.name"
 javaVersion = maybe "" id $ System.getProperty "java.version"
 
 pure native toString :: Object -> String
-pure native trim :: String -> String
 native sysin "java.lang.System.in" :: InputStream
 
 welcome = "Welcome to Frege " ++ version ++ " (" ++ vmVendor ++ " " ++ vmName ++
