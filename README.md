@@ -87,31 +87,6 @@ In addition to Frege code, the following commands are supported:
      or if you want to customize JVM parameters:
      `java -cp "frege-repl-<version>/lib/*" frege.repl.FregeRepl`
    
-## How to generate Hoogle database for Frege
-1. Run the following command. This would create a text file in the current directory called `froogle.txt` that contains
-the Frege types which Hoogle understands.
-
-     `java -cp "frege-repl-<version>/lib/*" frege.repl.Froogle frege`
-     
-    An exclusion list can also be specified after the package name to avoid generating the types for those modules. The exclusion
-    strings are regular expressions that match the class names. In this example, one regex is specified that excludes 
-    `frege.compiler`, `frege.runtime`, `frege.interpreter` and so on. Multiple regex strings can also be specified as multiple arguments.
-       
-       `java -cp "frege-repl-<version>/lib/*" frege.repl.Froogle frege "^frege\.(compiler|runtime|interpreter|scriptengine|repl)\."`
-   
-1. Once the hoogle text database file is generated, it should be converted to a binary database (`*.hoo` extension) file.
-   It can be done with `hoogle convert` command as shown below. Hoogle 4 should be installed locally for this.
-
-    `hoogle convert froogle.txt`
-    
-    This would create `froogle.hoo` in the current directory.
-
-1. The final step is to rename `froogle.hoo` to `default.hoo` and then start Hoogle locally as a server:
-
-    `hoogle server -p 8080`
-    
-    This would start the server at port 9080.
-   
    
 ##Build from sources##
 
