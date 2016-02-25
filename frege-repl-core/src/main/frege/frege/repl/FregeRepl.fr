@@ -128,8 +128,8 @@ print console (cmd@(Eval line)) (CodeInfo sourceRepr g msgs) env = case sourceRe
                   print console typeCmd res newEnv
   Expression sym = printSymbolType console g sym
   Definitions syms = do
-    let labels = symLabels g syms
-    when (not . null $ labels) $ mapM_ console.writeln labels
+    let symLabels = map (showSymbol g) syms
+    when (not $ null symLabels) $ mapM_ console.writeln symLabels
     printMessages console msgs
   Module moduleName = do
     console.writeln $ "Module " ++ moduleName
@@ -159,7 +159,7 @@ eval (Eval line) = do
           when (not $ containsStr newEnv.config.predefs importModuleStmt) $
             Repl.modify ReplEnv.{config <- InterpreterConfig.{predefs<-updatePredefs},
                                  lineStart <- succ}
-          return $ CodeInfo sourceRepr g (filter wanted $ Message.fromGlobal g)
+          return $ CodeInfo sourceRepr g (Message.fromGlobal g)
         Definitions syms -> do
           let updatePredefs predefs | null predefs = line
               updatePredefs predefs = predefs ++ "\n" ++ line
@@ -172,7 +172,7 @@ eval (Eval line) = do
         Expression {} -> do
           Repl.modify ReplEnv.{lastJavaGenSrc=Just line, state = newState}
           return $ CodeInfo sourceRepr g (filter wanted $ Message.fromGlobal g)
-    InterpreterResult.Failure messages -> return $ ReplInfo $ filter wanted messages
+    InterpreterResult.Failure messages -> return $ ReplInfo messages
 
 eval (Type expr) = do
   env <- Repl.get
@@ -188,14 +188,16 @@ eval (LoadExternal src script) = do
 eval (BrowseModule moduleName) = do
   env <- Repl.get
   res <- liftIO $ fst <$> Interpreter.run (browseModule moduleName) env.config env.state
-  return $ maybe (ReplInfo []) (\(moduleDoc, syms, g) -> toReplInfo g moduleDoc moduleName . filter wantedSym $ syms) res
+  let wanted sym = sym.name.base !~ '^frege_interpreter_var'
+  return $ maybe (ReplInfo []) (\(syms, g) -> symbolsToReplInfo g . filter wanted $ syms) res
 
 eval Browse = do
   env <- Repl.get
   let src = env.config.predefs
   res <- liftIO $ fst <$> Interpreter.run (browse src) env.config.{predefs=""} env.state
   Repl.put env
-  return $ maybe (ReplInfo []) (\(syms, g) -> symbolsToReplInfo g . filter wantedSym $ syms) res
+  let wanted sym = sym.name.base !~ '^frege_interpreter_var'
+  return $ maybe (ReplInfo []) (\(syms, g) -> symbolsToReplInfo g . filter wanted $ syms) res
 
 eval (HelpDoc name) = do
   env <- Repl.get
@@ -267,10 +269,6 @@ eval Version = return $ ReplInfo [Message.info version]
 eval Help = return $ ReplInfo (fmap Message.info (help cmdHelp))
 eval _ = return $ ReplInfo []
 
-toReplInfo g moduleDoc moduleName syms = ReplInfo . map Message.info $ doc where
-  symDocs =  symLabels g syms
-  doc = ("\n\n" ++ prefixCommentChars moduleDoc): ("module " ++ moduleName): symDocs
-
 parseAndSetCompilerFlag flag = do
   env <- Repl.get
   case flagtree.lookup flag of
@@ -287,12 +285,7 @@ setCompilerFlag flag = do
   Repl.modify ReplEnv.{config <- InterpreterConfig.{compilerFlags <- (\flags -> Flags.setFlag flags flag)}}
   return $ ReplInfo []
 
-wantedSym :: Symbol -> Bool
-wantedSym sym = sym.name.base !~ '^frege_interpreter_var'
-
-symbolsToReplInfo g = ReplInfo . map (Message.info) . symLabels g
-
-symLabels g = map (\s -> show s ++ "\n") . sortBy (comparing _.name) . map (label g)
+symbolsToReplInfo g syms = ReplInfo $ map (Message.info . showSymbol g) syms
 
 java src = do
     env <- Repl.get
@@ -314,7 +307,7 @@ slurp filePath = do
 
 printMessages :: ReplIO a => a -> [Message] -> IO ()
 printMessages console [] = return ()
-printMessages console msgs = mapM_ (console.writeln . show) msgs
+printMessages console msgs = mapM_ (console.writeln . Message.text) msgs
 
 printSymbolType :: ReplIO a => a -> Global -> Symbol -> IO ()
 printSymbolType console g sym = console.writeln (getSymbolType g sym)
@@ -359,7 +352,7 @@ renderCmdHelp cmdHelp = map render cmdHelp where
 help cmdHelp = header ++ body where
     header = ["At the prompt, you can enter Frege code snippets to get them evaluated.",
             "The output or compilation errors will be printed below the prompt.",
-            "In addition to Frege code, the following commands are supported:\n"]
+            "In addition to Frege code, the following commands are supported:\n \n"]
     body = renderCmdHelp cmdHelp
 
 urlContents url = do
