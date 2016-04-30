@@ -28,19 +28,18 @@ data ReplEnv = ReplEnv
     , state :: MutableIO InterpreterClassLoader
     }
   where
-    default = do
+    initialState = do
       loader <- InterpreterClassLoader.new ()
       return ReplEnv
         { lastJavaGenSrc = Nothing -- To display last generated Java Source
         , lastExternalScript = Nothing -- To reload last external script
-        , opts = ReplOpts.default
-        , config = InterpreterConfig.default
+        , opts = ReplOpts.initialState
+        , config = InterpreterConfig.initialState
         , lineStart = 2
         , state = loader
         }
 
-    reset = liftIO ReplEnv.default >>= Repl.put
-
+    reset = liftIO ReplEnv.initialState >>= Repl.put
 
 data ReplOpts = ReplOpts
     { prompt :: String
@@ -48,7 +47,7 @@ data ReplOpts = ReplOpts
     , showLimit :: Int
     }
   where
-    default = ReplOpts
+    initialState = ReplOpts
       { prompt = "frege> "
       , multilinePrompt = "> "
       , showLimit = 80
@@ -61,10 +60,10 @@ data Repl a = Repl {un :: StateT ReplEnv IO a} where
       s <- Repl.get
       Repl.put (f s)
   run (Repl s) env = s.run env
-  runWithDefault (Repl s) = ReplEnv.default >>= s.run
+  runWithDefault (Repl s) = ReplEnv.initialState >>= s.run
 
 instance Monad Repl where
-  return = Repl . return
+  pure = Repl . pure
   (Repl state) >>= f = Repl $ state >>= (\a -> Repl.un $ f a)
 
 instance MonadIO Repl where
@@ -77,7 +76,6 @@ data ReplResult = ReplInfo [Message]
                     messages :: [Message]
                   }
                 | JavaSource String
-                | DocHelp String
 
 repl :: ReplIO a => a -> ReplEnv -> IO ()
 repl console env = do
@@ -105,8 +103,8 @@ read console state = do
      Right cmd -> return cmd
 
 print :: ReplIO a => a -> Command -> ReplResult -> ReplEnv -> IO ()
-print _ Java (JavaSource src) _ = javaSourceGUI src
-print _ (HelpDoc src) (DocHelp doc) _ = if null doc then return () else helpGUI src doc
+print console Java (JavaSource src) _ = javaSourceGUI src
+print console (HelpDoc item) _ _ = launchBrowser ("Hoogle " ++ item) (hoogle item)
 print console _ (ReplInfo msgs) env = printMessages console msgs
 print console (cmd@(Eval line)) (CodeInfo sourceRepr g msgs) env = case sourceRepr of
   Expression sym | isVariable g sym =
@@ -199,10 +197,7 @@ eval Browse = do
   let wanted sym = sym.name.base !~ '^frege_interpreter_var'
   return $ maybe (ReplInfo []) (\(syms, g) -> symbolsToReplInfo g . filter wanted $ syms) res
 
-eval (HelpDoc name) = do
-  env <- Repl.get
-  res <- liftIO $ fst <$> Interpreter.run (docHelp name) env.config env.state
-  return $ either ReplInfo DocHelp res
+eval (HelpDoc name) = return (ReplInfo [])
 
 eval Java = do
   env <- Repl.get
@@ -313,7 +308,7 @@ printSymbolType :: ReplIO a => a -> Global -> Symbol -> IO ()
 printSymbolType console g sym = console.writeln (getSymbolType g sym)
 
 readMultiline :: ReplIO a => a -> String -> IO String
-readMultiline console multilinePrompt = intercalate newLine . reverse <$> f [] where
+readMultiline console multilinePrompt = intercalateNewLine . reverse <$> f [] where
   f acc = do
     lineMaybe <- console.readline multilinePrompt
     let line = maybe ":}" id lineMaybe
@@ -321,6 +316,7 @@ readMultiline console multilinePrompt = intercalate newLine . reverse <$> f [] w
       then console.writeln "" >> return acc
       else f (line : acc)
 
+hoogle item = "http://hoogle.haskell.org:8081/?hoogle=" ++ encodeURIComponent item
 
 cmdHelp = [(":t or :type <expression>", "Display the type of an expression."),
             (":browse <module name>", "Display the names in a module if " ++
@@ -383,49 +379,6 @@ javaSourceGUI javaSource = do
    frame.setContentPane newContentPane
    frame.pack
    frame.setVisible true
-
-
-helpGUI :: String -> String -> IO ()
-helpGUI title content = do
-    frame <- JFrame.new (title ++ " - Documentation")
-    frame.setDefaultCloseOperation JFrame.dispose_on_close
-    newContentPane:: JPanel <- BorderLayout.new () >>= JPanel.new
-    let html :: String
-        html
-            | index >= 0 = substring content index  -- Skip DOCTYPE
-            | otherwise = content
-          where
-            index = indexOf content "<HTML>"
-    editor::JEditorPane <- JEditorPane.new "text/html" html
-    editor.setEditable false
-    helpLinksListener <- FregeJavaProxy.with showDesktop HyperlinkListener.clazz
-    editor.addHyperlinkListener helpLinksListener
-    scrollPane <- JScrollPane.new editor
-    dimension <- Dimension.new 600 600
-    JComponent.setPreferredSize scrollPane dimension
-    Container.add newContentPane scrollPane (asObject BorderLayout.center)
-    newContentPane.setOpaque true
-    frame.setContentPane newContentPane
-    frame.pack
-    frame.setVisible true
-
-data FregeJavaProxy = pure native frege.interpreter.javasupport.FregeJavaProxy where
-  native with frege.interpreter.javasupport.FregeJavaProxy.with ::
-    (Object -> Method -> JArray Object -> ST s a) -> Class c -> IO c
-
-showDesktop :: Object -> Method -> JArray Object -> IO ()
-showDesktop _ _ args = do
-  event <- return $ asHyperlinkEvent $ args.elemAt 0
-  d <- Desktop.getDesktop ()
-  desktopSupported <- d.isDesktopSupported
-  let url = HyperlinkEvent.getURL event
-      navigateRelative = either throw d.browse . URI.new $ fixHelpLink event.getDescription
-      navigate = maybe navigateRelative (\u -> toURI u >>= d.browse) url
-  when (event.getEventType == HyperlinkEvent_EventType.activated) navigate
-
-fixHelpLink s | Just (Just relative : _)
-                  <- s `match` '^\.(.*)$' = "http://www.frege-lang.org/doc" ++ relative
-fixHelpLink s = s
 
 native toURI :: URL -> ST s URI throws URISyntaxException
 pure native asObject "(java.lang.Object)" :: a -> Object
@@ -512,7 +465,9 @@ data ConsoleReader = mutable native jline.console.ConsoleReader where
   native readLine :: ConsoleReader -> String -> IO (Maybe String) throws IOException
                    | ConsoleReader -> IO (Maybe String) throws IOException
   native println :: ConsoleReader -> CharSequence -> IO () throws IOException
+                  | ConsoleReader → IO () throws IOException
   native print :: ConsoleReader -> CharSequence -> IO () throws IOException
+  native flush :: ConsoleReader -> IO () throws IOException
   native setPrompt :: ConsoleReader -> String -> IO ()
   native setExpandEvents :: ConsoleReader -> Bool -> IO ()
 
@@ -529,9 +484,8 @@ instance ReplIO ConsoleReader where
   interpretSym console g sym env =
     do
       valMaybe <- fieldValue (symbolClass sym g) (symbolVar sym g) env.state
-      console.writeln $ maybe "undefined" id valMaybe
+      console.writeln $ maybe "undefined" thunkToString valMaybe
     `catch` (console.writeln . showThrowableCause)
-
 
 data ReaderWriterConsole = ReaderWriterConsole {input :: BufferedReader, output :: PrintWriter}
 
@@ -549,7 +503,7 @@ instance ReplIO ReaderWriterConsole where
   interpretSym console g sym env =
     do
       valMaybe <- fieldValue (symbolClass sym g) (symbolVar sym g) env.state
-      console.writeln $ maybe "undefined" id valMaybe
+      console.writeln $ maybe "undefined" thunkToString valMaybe
     `catch` (console.writeln . showThrowableCause)
 
 readResourceAsString :: String -> IO String
@@ -563,20 +517,47 @@ native getResourceAsStream :: ClassLoader -> String -> IO InputStream
 
 pure native containsStr contains :: String -> String -> Bool
 
+private pure native thunkToString frege.interpreter.javasupport.JavaUtils.thunkToString
+  :: Object -> String
+
+native launchBrowser frege.repl.nativedeps.Browser.show :: String → String → IO ()
+
+pure native encodeURIComponent frege.repl.FregeRepl.encodeURIComponent :: String → String
+
+native module where {
+
+  public static String encodeURIComponent(String s) {
+      String encoded = null;
+      try {
+          encoded = java.net.URLEncoder.encode(s, "UTF-8")
+              .replaceAll("\\+", "%20")
+              .replaceAll("\\%21", "!")
+              .replaceAll("\\%27", "'")
+              .replaceAll("\\%28", "(")
+              .replaceAll("\\%29", ")")
+              .replaceAll("\\%7E", "~");
+      } catch (java.io.UnsupportedEncodingException e) {
+          encoded = s;
+      }
+      return encoded;
+  }
+}
+
 warmup = do
-  env <- ReplEnv.default
+  env <- ReplEnv.initialState
   (res, newState) <- Interpreter.run (interpret "show [1..10]") env.config env.state
   case res of
     InterpreterResult.Success{sourceRepr=(Expression sym), compilerState=g} -> fieldValue (symbolClass sym g) (symbolVar sym g) newState
-    _ -> return $ Just "ignore"
+    _ -> return $ Just undefined
   return ()
 
 main = do
   console <- ConsoleReader.new "frege" sysin System.out Nothing "UTF-8"
   Runnable.new warmup >>= Thread.new >>= Thread.start
-  env <- ReplEnv.default
+  env <- ReplEnv.initialState
   console.setPrompt env.opts.prompt
   console.setExpandEvents false
   console.println $ CharSequence.fromString welcome
   repl console env
   System.exit 0
+

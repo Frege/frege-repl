@@ -6,6 +6,10 @@ mainClassName = "frege.repl.FregeRepl"
 
 applicationName = "frege-repl"
 
+compileFrege {
+    target = "1.7"
+}
+
 compileTestFrege {
     enabled = false
 }

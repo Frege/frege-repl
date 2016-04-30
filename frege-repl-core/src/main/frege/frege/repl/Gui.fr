@@ -82,8 +82,7 @@ data Window = mutable native java.awt.Window where
   native addWindowListener :: Window -> WindowListener -> IO ()
   native setLocation :: Window -> Int -> Int -> IO ()
 
-data WindowListener = mutable native java.awt.event.WindowListener where
-  native listener frege.repl.NativeWrapper.windowListener :: (WindowEvent -> IO ()) -> IO WindowListener
+data WindowListener = mutable native java.awt.event.WindowListener
 
 data GridLayout = mutable native java.awt.GridLayout where
   native new :: Int -> Int -> IO GridLayout
@@ -128,9 +127,6 @@ data ActionMap = mutable native javax.swing.ActionMap where
   native put :: ActionMap -> Object -> Action -> IO ()
 
 data Action = mutable native javax.swing.Action
-
-data AbstractAction = mutable native javax.swing.AbstractAction where
-  native action frege.repl.NativeWrapper.swingAction :: (ActionEvent -> IO ()) -> IO Action
 
 data WindowEvent = mutable native java.awt.event.WindowEvent
 
