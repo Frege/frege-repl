@@ -81,8 +81,9 @@ In addition to Frege code, the following commands are supported:
 ##How to run?##
 1. Download Frege REPL archive from [releases](https://github.com/Frege/frege-repl/releases).
 1. Extract the archive
-1. Run the following command: (JRE 7 or above required)
-     `$ frege-repl-<version>/bin/frege-repl`
+1. Run the following command: (JDK 8 or above required. Note that JDK is required, not just JRE as Frege is compiled to Java which is then compiled to byte code using the Java compiler available in the JDK)
+
+          $ frege-repl-<version>/bin/frege-repl
      
      or if you want to customize JVM parameters:
      `java -cp "frege-repl-<version>/lib/*" frege.repl.FregeRepl`
