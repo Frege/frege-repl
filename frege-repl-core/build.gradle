@@ -27,5 +27,4 @@ dependencies {
     compile project(":frege-repl-nativedeps")
     compile "jline:jline:2.13"
     compile "org.frege-lang:frege-interpreter-core:$fregeInterpreterVersion"
-    compile "com.google.guava:guava:$guavaVersion"
 }

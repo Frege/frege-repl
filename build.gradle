@@ -36,7 +36,6 @@ subprojects {
         projectVersion = baseVersion + (isSnapshot ? snapshotAppendix : "")
 
         fregeInterpreterVersion = "1.3-SNAPSHOT"
-        guavaVersion = "18.0"
     }
 
     apply from: "$rootDir/gradle/sonatype.gradle"

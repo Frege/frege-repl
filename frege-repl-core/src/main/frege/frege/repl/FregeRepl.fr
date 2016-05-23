@@ -484,7 +484,7 @@ instance ReplIO ConsoleReader where
   interpretSym console g sym env =
     do
       valMaybe <- fieldValue (symbolClass sym g) (symbolVar sym g) env.state
-      console.writeln $ maybe "undefined" thunkToString valMaybe
+      console.writeln $ maybe "undefined" toString valMaybe
     `catch` (console.writeln . showThrowableCause)
 
 data ReaderWriterConsole = ReaderWriterConsole {input :: BufferedReader, output :: PrintWriter}
@@ -503,7 +503,7 @@ instance ReplIO ReaderWriterConsole where
   interpretSym console g sym env =
     do
       valMaybe <- fieldValue (symbolClass sym g) (symbolVar sym g) env.state
-      console.writeln $ maybe "undefined" thunkToString valMaybe
+      console.writeln $ maybe "undefined" toString valMaybe
     `catch` (console.writeln . showThrowableCause)
 
 readResourceAsString :: String -> IO String
@@ -516,9 +516,6 @@ readResourceAsString fileName = do
 native getResourceAsStream :: ClassLoader -> String -> IO InputStream
 
 pure native containsStr contains :: String -> String -> Bool
-
-private pure native thunkToString frege.interpreter.javasupport.JavaUtils.thunkToString
-  :: Object -> String
 
 native launchBrowser frege.repl.nativedeps.Browser.show :: String → String → IO ()
 
