@@ -1,4 +1,4 @@
-#Frege REPL [![Build Status](https://travis-ci.org/Frege/frege-repl.svg)](https://travis-ci.org/Frege/frege-repl)
+# Frege REPL [![Build Status](https://travis-ci.org/Frege/frege-repl.svg)](https://travis-ci.org/Frege/frege-repl)
 
 This is the command line REPL for Frege. Frege code snippets can be entered on the prompt to get them evaluated.
 In addition to Frege code, the following commands are supported:
@@ -78,7 +78,7 @@ In addition to Frege code, the following commands are supported:
 </tr>
 </table>
 
-##How to run?##
+## How to run? ##
 1. Download Frege REPL archive from [releases](https://github.com/Frege/frege-repl/releases).
 1. Extract the archive
 1. Run the following command: (JDK 8 or above required. Note that JDK is required, not just JRE as Frege is compiled to Java which is then compiled to byte code using the Java compiler available in the JDK)
@@ -89,7 +89,7 @@ In addition to Frege code, the following commands are supported:
      `java -cp "frege-repl-<version>/lib/*" frege.repl.FregeRepl`
    
    
-##Build from sources##
+## Build from sources ##
 
 1. ```~/workspace$ git clone https://github.com/Frege/frege-repl.git```
 1. ```~/workspace/frege-repl$ ./gradlew install```
