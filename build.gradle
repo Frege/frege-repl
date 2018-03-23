@@ -55,8 +55,10 @@ subprojects {
         mavenCentral()
     }
 
+
     dependencies {
-        compile "org.frege-lang:frege-interpreter-core:$fregeInterpreterVersion"
+		compile files('/home/ingo/Frege/frege/dist/frege3.24-latest.jar')
+		runtime files('/home/ingo/Frege/frege/dist/frege3.24-latest.jar')
     }
 
     nexusStaging {
