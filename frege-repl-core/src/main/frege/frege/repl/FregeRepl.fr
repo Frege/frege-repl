@@ -516,7 +516,7 @@ readResourceAsString fileName = do
   isr <- InputStreamReader.new is "UTF-8"
   BufferedReader.new isr >>= getContentsOf
 
-native getResourceAsStream :: ClassLoader -> String -> IOMutable InputStream
+native getResourceAsStream :: MutableIO ClassLoader -> String -> IOMutable InputStream
 
 pure native containsStr contains :: String -> String -> Bool
 
