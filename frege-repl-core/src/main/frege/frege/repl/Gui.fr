@@ -10,10 +10,10 @@ pure native asHyperlinkEvent "(javax.swing.event.HyperlinkEvent)" :: Object -> H
 
 native setSize :: MutableIO Component -> Int -> Int -> IO ()
 
-data Desktop = mutable native java.awt.Desktop where
-  native getDesktop java.awt.Desktop.getDesktop :: () -> IO Desktop
-  native isDesktopSupported :: Desktop -> IO Bool
-  native browse :: Desktop -> URI -> IO () throws IOException
+data Desktop = native java.awt.Desktop where
+  native getDesktop java.awt.Desktop.getDesktop :: () -> IOMutable Desktop
+  native isDesktopSupported :: MutableIO Desktop -> IO Bool
+  native browse :: MutableIO Desktop -> URI -> IO () throws IOException
 
 data HyperlinkEvent = pure native javax.swing.event.HyperlinkEvent where
   pure native getURL :: HyperlinkEvent -> Maybe URL
@@ -66,38 +66,38 @@ data JScrollPane = native javax.swing.JScrollPane where
   pure native horizontal_scrollbar_always javax.swing.JScrollPane.HORIZONTAL_SCROLLBAR_ALWAYS :: Int
 
 data JComponent = native javax.swing.JComponent where
-  native setPreferredSize :: MutableIO JComponent -> Dimension -> IO ()
+  native setPreferredSize :: MutableIO JComponent -> MutableIO Dimension -> IO ()
   pure native when_focused javax.swing.JComponent.WHEN_FOCUSED :: Int
-  native getInputMap :: MutableIO JComponent -> IO InputMap
-  native getActionMap :: MutableIO JComponent -> IO ActionMap
+  native getInputMap :: MutableIO JComponent -> IOMutable InputMap
+  native getActionMap :: MutableIO JComponent -> IOMutable ActionMap
 
-data JOptionPane = mutable native javax.swing.JOptionPane where
+data JOptionPane = native javax.swing.JOptionPane where
    native showInputDialog javax.swing.JOptionPane.showInputDialog :: Object -> IO String
    pure native plain_message javax.swing.JOptionPane.PLAIN_MESSAGE :: Int
    native showMessageDialog javax.swing.JOptionPane.showMessageDialog
      :: Maybe (MutableIO Component) -> Object -> IO ()
       | Maybe (MutableIO Component) -> Object -> String -> Int -> IO ()
 
-data Window = mutable native java.awt.Window where
-  native pack :: Window -> IO ()
-  native addWindowListener :: Window -> WindowListener -> IO ()
-  native setLocation :: Window -> Int -> Int -> IO ()
+data Window = native java.awt.Window where
+  native pack :: MutableIO Window -> IO ()
+  native addWindowListener :: MutableIO Window -> MutableIO WindowListener -> IO ()
+  native setLocation :: MutableIO Window -> Int -> Int -> IO ()
 
-data WindowListener = mutable native java.awt.event.WindowListener
+data WindowListener = native java.awt.event.WindowListener
 
-data GridLayout = mutable native java.awt.GridLayout where
-  native new :: Int -> Int -> IO GridLayout
-              | Int -> Int -> Int -> Int -> IO GridLayout
+data GridLayout = native java.awt.GridLayout where
+  native new :: Int -> Int -> IOMutable GridLayout
+              | Int -> Int -> Int -> Int -> IOMutable GridLayout
 
-data JTextComponent = mutable native javax.swing.text.JTextComponent where
-  native getDocument :: JTextComponent -> IO Document
-  native setCaretPosition :: JTextComponent -> Int -> IO ()
+data JTextComponent = native javax.swing.text.JTextComponent where
+  native getDocument :: MutableIO JTextComponent -> IOMutable Document
+  native setCaretPosition :: MutableIO JTextComponent -> Int -> IO ()
 
-data Dimension = mutable native java.awt.Dimension where
-  native new :: Int -> Int -> IO Dimension
+data Dimension = native java.awt.Dimension where
+  native new :: Int -> Int -> IOMutable Dimension
 
-data JTextArea = mutable native javax.swing.JTextArea where
-  native new :: String -> Int -> Int -> IO JTextArea
+data JTextArea = native javax.swing.JTextArea where
+  native new :: String -> Int -> Int -> IOMutable JTextArea
 
 instance Eq HyperlinkEvent_EventType where
   e1 == e2 = e1.equals $ asObject e2
@@ -111,25 +111,25 @@ data JEditorPane = native javax.swing.JEditorPane where
   native addHyperlinkListener :: MutableIO JEditorPane -> HyperlinkListener -> IO ()
   native setEditable :: MutableIO JEditorPane -> Bool -> IO ()
 
-data Document = mutable native javax.swing.text.Document where
-  native insertString :: Document -> Int -> String -> Maybe AttributeSet -> IO () throws BadLocationException
-  native getLength :: Document -> IO Int
+data Document = native javax.swing.text.Document where
+  native insertString :: MutableIO Document -> Int -> String -> Maybe AttributeSet -> IO () throws BadLocationException
+  native getLength :: MutableIO Document -> IO Int
 
 data BadLocationException = pure native javax.swing.text.BadLocationException
 derive Exceptional BadLocationException
 
 data AttributeSet = pure native javax.swing.text.AttributeSet
 
-data InputMap = mutable native javax.swing.InputMap where
-  native get :: InputMap -> KeyStroke -> IO Object
-  native put :: InputMap -> KeyStroke -> Object -> IO ()
+data InputMap = native javax.swing.InputMap where
+  native get :: MutableIO InputMap -> KeyStroke -> IO Object
+  native put :: MutableIO InputMap -> KeyStroke -> Object -> IO ()
 
-data ActionMap = mutable native javax.swing.ActionMap where
-  native put :: ActionMap -> Object -> Action -> IO ()
+data ActionMap = native javax.swing.ActionMap where
+  native put :: MutableIO ActionMap -> Object -> MutableIO Action -> IO ()
 
-data Action = mutable native javax.swing.Action
+data Action = native javax.swing.Action
 
-data WindowEvent = mutable native java.awt.event.WindowEvent
+data WindowEvent = native java.awt.event.WindowEvent
 
 data KeyStroke = pure native javax.swing.KeyStroke where
   pure native getKeyStroke javax.swing.KeyStroke.getKeyStroke :: String -> KeyStroke

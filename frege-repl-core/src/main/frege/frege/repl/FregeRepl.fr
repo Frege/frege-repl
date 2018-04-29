@@ -441,51 +441,54 @@ vmName = maybe "" id $ System.getProperty "java.vm.name"
 javaVersion = maybe "" id $ System.getProperty "java.version"
 
 pure native toString :: Object -> String
+--- nowarn: Don't warn because of constantness
 native sysin "java.lang.System.in" :: MutableIO InputStream
 
 welcome = "Welcome to Frege " ++ version ++ " (" ++ vmVendor ++ " " ++ vmName ++
     ", " ++ javaVersion ++ ")"
 
 class ReplIO a where
-  readline :: a -> String -> IO (Maybe String)
-  write :: a -> String -> IO ()
-  writeln :: a -> String -> IO ()
-  interpretSym :: a -> Global -> Symbol -> ReplEnv -> IO ()
+  readline ::  a -> String -> IO (Maybe String)
+  write ::  a -> String -> IO ()
+  writeln ::  a -> String -> IO ()
+  interpretSym ::  a -> Global -> Symbol -> ReplEnv -> IO ()
 
-data ConsoleReader = mutable native jline.console.ConsoleReader where
-  native new :: () -> IO ConsoleReader throws IOException
+data ConsoleReader = native jline.console.ConsoleReader where
+  native new :: () -> IOMutable ConsoleReader throws IOException
               | String
                 -> MutableIO InputStream
                 -> MutableIO OutputStream
                 -> Maybe Terminal
                 -> String
-                -> IO ConsoleReader
+                -> IOMutable ConsoleReader
                 throws IOException
 
-  native readLine :: ConsoleReader -> String -> IO (Maybe String) throws IOException
-                   | ConsoleReader -> IO (Maybe String) throws IOException
-  native println :: ConsoleReader -> CharSequence -> IO () throws IOException
-                  | ConsoleReader → IO () throws IOException
-  native print :: ConsoleReader -> CharSequence -> IO () throws IOException
-  native flush :: ConsoleReader -> IO () throws IOException
-  native setPrompt :: ConsoleReader -> String -> IO ()
-  native setExpandEvents :: ConsoleReader -> Bool -> IO ()
+  native readLine :: MutableIO ConsoleReader -> String -> IO (Maybe String) throws IOException
+                   | MutableIO ConsoleReader -> IO (Maybe String) throws IOException
+  native println :: MutableIO ConsoleReader -> CharSequence -> IO () throws IOException
+                  | MutableIO ConsoleReader → IO () throws IOException
+  native print :: MutableIO ConsoleReader -> CharSequence -> IO () throws IOException
+  native flush :: MutableIO ConsoleReader -> IO () throws IOException
+  native setPrompt :: MutableIO ConsoleReader -> String -> IO ()
+  native setExpandEvents :: MutableIO ConsoleReader -> Bool -> IO ()
 
-data Terminal = mutable native jline.Terminal
+data Terminal = native jline.Terminal
 
-instance ReplIO ConsoleReader where
-  readline console prompt = try ConsoleReader.readLine console prompt `catch` (\(ioe :: IOException) -> return Nothing)
-  write console s = try (flip ConsoleReader.print (CharSequence.fromString s)) console
+newtype JLineConsole = JLineConsole { console :: MutableIO ConsoleReader }
+
+instance ReplIO JLineConsole where
+  readline c prompt = try ConsoleReader.readLine c.console prompt `catch` (\(ioe :: IOException) -> return Nothing)
+  write c s = try (flip ConsoleReader.print (CharSequence.fromString s)) c.console
                       `catch` (\(ioe :: IOException) -> return ())
-  writeln console s = try (jPrint s) console
+  writeln c s = try (jPrint s) c.console
                         `catch` (\(ioe :: IOException) -> println ioe.getMessage)
                      where
                        jPrint s console = mapM_ (console.println . CharSequence.fromString) $ toList $ split s "\\n"
-  interpretSym console g sym env =
+  interpretSym c g sym env =
     do
       valMaybe <- fieldValue (symbolClass sym g) (symbolVar sym g) env.state
-      console.writeln $ maybe "undefined" toString valMaybe
-    `catch` (console.writeln . showThrowableCause)
+      c.writeln $ maybe "undefined" toString valMaybe
+    `catch` (c.writeln . showThrowableCause)
 
 data ReaderWriterConsole = ReaderWriterConsole {input :: MutableIO BufferedReader, output :: MutableIO PrintWriter}
 
@@ -555,6 +558,6 @@ main = do
   console.setPrompt env.opts.prompt
   console.setExpandEvents false
   console.println $ CharSequence.fromString welcome
-  repl console env
+  repl (JLineConsole console) env
   System.exit 0
 
