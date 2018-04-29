@@ -87,6 +87,8 @@ In addition to Frege code, the following commands are supported:
      
      or if you want to customize JVM parameters:
      `java -cp "frege-repl-<version>/lib/*" frege.repl.FregeRepl`
+
+As of late, the REPL is included in [frege releases](https://github.com/Frege/frege/releases). 
    
    
 ## Build from sources ##
