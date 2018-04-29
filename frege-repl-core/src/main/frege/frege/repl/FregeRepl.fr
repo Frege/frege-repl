@@ -13,7 +13,7 @@ import Compiler.types.Positions
 import Java.Swing hiding (JPanel, JComponent, JTextComponent, JPanel)
 import Java.Awt (Component, ActionListener)
 import Java.Util (Scanner, ArrayList, Collection)
-import frege.Prelude hiding (print)
+import frege.Prelude hiding (print, read)
 import frege.Prelude (print pPrint)
 import Control.monad.trans.MonadIO
 import Control.monad.State
@@ -363,14 +363,14 @@ fileContents filePath = do
     scanner.useDelimiter '\Z'
     scanner.next `finally` scanner.close
 
-native scannerFromInputStream new :: InputStream -> IOMutable Scanner
+native scannerFromInputStream new :: MutableIO InputStream -> IOMutable Scanner
 
 javaSourceGUI :: String -> IO ()
 javaSourceGUI javaSource = do
-   frame::JFrame <- JFrame.new "Java Source"
-   newContentPane::JPanel <- BorderLayout.new () >>= JPanel.new
+   frame::MutableIO JFrame <- JFrame.new "Java Source"
+   newContentPane::MutableIO JPanel <- BorderLayout.new () >>= JPanel.new
    frame.setDefaultCloseOperation JFrame.dispose_on_close
-   editor::JEditorPane <- JEditorPane.new "text/plain" javaSource
+   editor::MutableIO JEditorPane <- JEditorPane.new "text/plain" javaSource
    editor.setEditable false
    scrollPane <- JScrollPane.new editor
    dimension <- Dimension.new 600 600
@@ -441,7 +441,7 @@ vmName = maybe "" id $ System.getProperty "java.vm.name"
 javaVersion = maybe "" id $ System.getProperty "java.version"
 
 pure native toString :: Object -> String
-native sysin "java.lang.System.in" :: InputStream
+native sysin "java.lang.System.in" :: MutableIO InputStream
 
 welcome = "Welcome to Frege " ++ version ++ " (" ++ vmVendor ++ " " ++ vmName ++
     ", " ++ javaVersion ++ ")"
@@ -455,8 +455,8 @@ class ReplIO a where
 data ConsoleReader = mutable native jline.console.ConsoleReader where
   native new :: () -> IO ConsoleReader throws IOException
               | String
-                -> InputStream
-                -> OutputStream
+                -> MutableIO InputStream
+                -> MutableIO OutputStream
                 -> Maybe Terminal
                 -> String
                 -> IO ConsoleReader
@@ -487,7 +487,7 @@ instance ReplIO ConsoleReader where
       console.writeln $ maybe "undefined" toString valMaybe
     `catch` (console.writeln . showThrowableCause)
 
-data ReaderWriterConsole = ReaderWriterConsole {input :: BufferedReader, output :: PrintWriter}
+data ReaderWriterConsole = ReaderWriterConsole {input :: MutableIO BufferedReader, output :: MutableIO PrintWriter}
 
 instance ReplIO ReaderWriterConsole where
   readline console prompt = try f console `catch` (\(ioe :: IOException) -> return Nothing) where
@@ -513,7 +513,7 @@ readResourceAsString fileName = do
   isr <- InputStreamReader.new is "UTF-8"
   BufferedReader.new isr >>= getContentsOf
 
-native getResourceAsStream :: ClassLoader -> String -> IO InputStream
+native getResourceAsStream :: ClassLoader -> String -> IOMutable InputStream
 
 pure native containsStr contains :: String -> String -> Bool
 

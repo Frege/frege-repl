@@ -3,11 +3,12 @@ module frege.repl.Gui where
 import Java.Net (URI, URL)
 import Java.Awt (Component, ActionEvent)
 
+
 pure native asHyperlinkListener "(javax.swing.event.HyperlinkListener)" :: Object -> HyperlinkListener
 pure native asHyperlinkEvent "(javax.swing.event.HyperlinkEvent)" :: Object -> HyperlinkEvent
 
 
-native setSize :: Component -> Int -> Int -> IO ()
+native setSize :: MutableIO Component -> Int -> Int -> IO ()
 
 data Desktop = mutable native java.awt.Desktop where
   native getDesktop java.awt.Desktop.getDesktop :: () -> IO Desktop
@@ -27,9 +28,9 @@ data HyperlinkEvent_EventType = pure native javax.swing.event.HyperlinkEvent.Eve
   pure native hashCode :: HyperlinkEvent_EventType -> Int
   pure native toString :: HyperlinkEvent_EventType -> String
 
-data BorderLayout = mutable native java.awt.BorderLayout where
-  native new :: () -> IO BorderLayout
-              | Int -> Int -> IO BorderLayout
+data BorderLayout = native java.awt.BorderLayout where
+  native new :: () -> IOMutable BorderLayout
+              | Int -> Int -> IOMutable BorderLayout
   pure native north java.awt.BorderLayout.NORTH :: String
   pure native south java.awt.BorderLayout.SOUTH :: String
   pure native east java.awt.BorderLayout.EAST :: String
@@ -44,38 +45,38 @@ data BorderLayout = mutable native java.awt.BorderLayout where
   pure native line_start java.awt.BorderLayout.LINE_START :: String
   pure native line_end java.awt.BorderLayout.LINE_END :: String
 
-data Container = mutable native java.awt.Container where
-    native add          :: Container -> Component -> IO Component
-                         | Container -> Component -> Object -> IO ()
+data Container = native java.awt.Container where
+    native add          :: MutableIO Container -> MutableIO Component -> IOMutable Component
+                         | MutableIO Container -> MutableIO Component -> Object -> IO ()
 
-    native setLayout    :: Container -> LayoutManager -> IO ()
+    native setLayout    :: MutableIO Container -> MutableIO LayoutManager -> IO ()
 
-data JPanel = mutable native javax.swing.JPanel where
-    native new :: () -> IO JPanel
-                  | LayoutManager -> IO JPanel
+data JPanel = native javax.swing.JPanel where
+    native new :: () -> IOMutable JPanel
+                  | MutableIO LayoutManager -> IOMutable JPanel
 
-data LayoutManager = mutable native java.awt.LayoutManager
+data LayoutManager = native java.awt.LayoutManager
 
-data JScrollPane = mutable native javax.swing.JScrollPane where
-  native new :: Component -> IO JScrollPane
-  native setVerticalScrollBarPolicy :: JScrollPane -> Int -> IO ()
-  native setHorizontalScrollBarPolicy :: JScrollPane -> Int -> IO ()
+data JScrollPane = native javax.swing.JScrollPane where
+  native new :: MutableIO Component -> IOMutable JScrollPane
+  native setVerticalScrollBarPolicy :: MutableIO JScrollPane -> Int -> IO ()
+  native setHorizontalScrollBarPolicy :: MutableIO JScrollPane -> Int -> IO ()
   pure native horizontal_scrollbar_as_needed javax.swing.JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED :: Int
   pure native vertical_scrollbar_always javax.swing.JScrollPane.VERTICAL_SCROLLBAR_ALWAYS :: Int
   pure native horizontal_scrollbar_always javax.swing.JScrollPane.HORIZONTAL_SCROLLBAR_ALWAYS :: Int
 
-data JComponent = mutable native javax.swing.JComponent where
-  native setPreferredSize :: JComponent -> Dimension -> IO ()
+data JComponent = native javax.swing.JComponent where
+  native setPreferredSize :: MutableIO JComponent -> Dimension -> IO ()
   pure native when_focused javax.swing.JComponent.WHEN_FOCUSED :: Int
-  native getInputMap :: JComponent -> IO InputMap
-  native getActionMap :: JComponent -> IO ActionMap
+  native getInputMap :: MutableIO JComponent -> IO InputMap
+  native getActionMap :: MutableIO JComponent -> IO ActionMap
 
 data JOptionPane = mutable native javax.swing.JOptionPane where
    native showInputDialog javax.swing.JOptionPane.showInputDialog :: Object -> IO String
    pure native plain_message javax.swing.JOptionPane.PLAIN_MESSAGE :: Int
    native showMessageDialog javax.swing.JOptionPane.showMessageDialog
-     :: Maybe Component -> Object -> IO ()
-      | Maybe Component -> Object -> String -> Int -> IO ()
+     :: Maybe (MutableIO Component) -> Object -> IO ()
+      | Maybe (MutableIO Component) -> Object -> String -> Int -> IO ()
 
 data Window = mutable native java.awt.Window where
   native pack :: Window -> IO ()
@@ -105,10 +106,10 @@ data HyperlinkListener = pure native javax.swing.event.HyperlinkListener where
   native hyperlinkUpdate :: HyperlinkListener -> HyperlinkEvent -> IO ()
   native clazz "javax.swing.event.HyperlinkListener.class" :: Class HyperlinkListener
 
-data JEditorPane = mutable native javax.swing.JEditorPane where
-  native new :: String -> String -> IO JEditorPane
-  native addHyperlinkListener :: JEditorPane -> HyperlinkListener -> IO ()
-  native setEditable :: JEditorPane -> Bool -> IO ()
+data JEditorPane = native javax.swing.JEditorPane where
+  native new :: String -> String -> IOMutable JEditorPane
+  native addHyperlinkListener :: MutableIO JEditorPane -> HyperlinkListener -> IO ()
+  native setEditable :: MutableIO JEditorPane -> Bool -> IO ()
 
 data Document = mutable native javax.swing.text.Document where
   native insertString :: Document -> Int -> String -> Maybe AttributeSet -> IO () throws BadLocationException
