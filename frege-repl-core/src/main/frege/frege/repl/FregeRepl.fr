@@ -358,7 +358,7 @@ urlContents url = do
     scanner.next `finally` scanner.close
 
 fileContents filePath = do
-    file <- File.new filePath
+    let file = File.new filePath :: File
     scanner <- Scanner.new file "utf-8"
     scanner.useDelimiter '\Z'
     scanner.next `finally` scanner.close
