@@ -25,6 +25,6 @@ run {
 
 dependencies {
     compile project(":frege-repl-nativedeps")
-    compile "jline:jline:2.13"
+    compile "jline:jline:2.14.6"
     compile "org.frege-lang:frege-interpreter-core:$fregeInterpreterVersion"
 }
