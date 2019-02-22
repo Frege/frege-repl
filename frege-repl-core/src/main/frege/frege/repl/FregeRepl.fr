@@ -50,7 +50,7 @@ data ReplOpts = ReplOpts
     initialState = ReplOpts
       { prompt = "frege> "
       , multilinePrompt = "> "
-      , showLimit = 80
+      , showLimit = 800
       }
 
 data Repl a = Repl {un :: StateT ReplEnv IO a} where
@@ -228,29 +228,37 @@ eval (Set s) | Just (Just limitStr : _) <- s `match` 'show-limit\s+(.+)' =
         errInfo = ReplInfo [Message.error $ "show-limit value must be a positive integer below " ++ show (maxBound :: Int)]
     either invalidNumber updateOpts limitStr.int
 
-eval (Set "v") = parseAndSetCompilerFlag "-v"
-eval (Set "hints") = parseAndSetCompilerFlag "-hints"
-eval (Set "nowarn") = parseAndSetCompilerFlag "-nowarn"
-eval (Set "inline") = parseAndSetCompilerFlag "-inline"
-eval (Set "O") = parseAndSetCompilerFlag "-O"
-eval (Set "comments") = parseAndSetCompilerFlag "-comments"
-eval (Set "ascii") = parseAndSetCompilerFlag "-ascii"
-eval (Set "greek") = parseAndSetCompilerFlag "-greek"
-eval (Set "fraktur") = parseAndSetCompilerFlag "-fraktur"
-eval (Set "latin") = parseAndSetCompilerFlag "-latin"
-eval (Set unknown) = return $ ReplInfo [Message.error ("Invalid option: " ++ unknown)]
+--eval (Set "v") = parseAndSetCompilerFlag "-v"
+--eval (Set "hints") = parseAndSetCompilerFlag "-hints"
+--eval (Set "nowarn") = parseAndSetCompilerFlag "-nowarn"
+--eval (Set "inline") = parseAndSetCompilerFlag "-inline"
+--eval (Set "O") = parseAndSetCompilerFlag "-O"
+--eval (Set "comments") = parseAndSetCompilerFlag "-comments"
+--eval (Set "ascii") = parseAndSetCompilerFlag "-ascii"
+--eval (Set "greek") = parseAndSetCompilerFlag "-greek"
+--eval (Set "fraktur") = parseAndSetCompilerFlag "-fraktur"
+--eval (Set "latin") = parseAndSetCompilerFlag "-latin"
+--eval (Set unknown) = return $ ReplInfo [Message.error ("Invalid option: " ++ unknown)]
+eval (Set '^-?explain') = setCompilerFlag Flag.EXPLAIN
+eval (Set something) = if something.startsWith "-" 
+    then parseAndSetCompilerFlag something 
+    else parseAndSetCompilerFlag ("-" ++ something)
 
-eval (Unset "v") = clearCompilerFlag Flag.VERBOSE
-eval (Unset "hints") = clearCompilerFlag Flag.HINTS
-eval (Unset "nowarn") = setCompilerFlag Flag.WARNINGS
-eval (Unset "inline") = clearCompilerFlag Flag.INLINE
-eval (Unset "O") = clearCompilerFlag Flag.OPTIMIZE
-eval (Unset "comments") = clearCompilerFlag Flag.COMMENTS
-eval (Unset "ascii") = setCompilerFlag Flag.USEUNICODE
-eval (Unset "greek") = clearCompilerFlag Flag.USEGREEK
-eval (Unset "fraktur") = clearCompilerFlag Flag.USEFRAKTUR
-eval (Unset "latin") = clearCompilerFlag Flag.USEGREEK >> clearCompilerFlag Flag.USEFRAKTUR
-eval (Unset unknown) = return $ ReplInfo [Message.error ("Invalid option: " ++ unknown)]
+eval (Unset '^-?v$')        = clearCompilerFlag Flag.VERBOSE
+eval (Unset '^-?hints$')    = clearCompilerFlag Flag.HINTS
+eval (Unset '^-?nowarn$')   = setCompilerFlag Flag.WARNINGS
+eval (Unset '^-?inline$')   = clearCompilerFlag Flag.INLINE
+eval (Unset '^-?O$')        = clearCompilerFlag Flag.OPTIMIZE >> clearCompilerFlag Flag.INLINE 
+eval (Unset '^-?comments$') = clearCompilerFlag Flag.COMMENTS
+eval (Unset '^-?ascii$')    = setCompilerFlag Flag.USEUNICODE
+eval (Unset '^-?greek$')    = clearCompilerFlag Flag.USEGREEK
+eval (Unset '^-?fraktur$')  = clearCompilerFlag Flag.USEFRAKTUR
+eval (Unset '^-?latin$')    = clearCompilerFlag Flag.USEGREEK >> clearCompilerFlag Flag.USEFRAKTUR
+eval (Unset '^-?explain')   = clearCompilerFlag Flag.EXPLAIN
+eval (Unset '^-?x')         = do 
+                                forM_ [Flag.TRACE1 .. Flag.TRACEZ] clearCompilerFlag
+                                pure (ReplInfo [Message.info "all trace flags cleared"])
+eval (Unset unknown)        = pure (ReplInfo [Message.error ("Invalid option: " ++ unknown)])
 
 eval History = do
   env <- Repl.get
@@ -358,7 +366,7 @@ urlContents url = do
     scanner.next `finally` scanner.close
 
 fileContents filePath = do
-    file <- File.new filePath
+    let file = File.new filePath :: File
     scanner <- Scanner.new file "utf-8"
     scanner.useDelimiter '\Z'
     scanner.next `finally` scanner.close
